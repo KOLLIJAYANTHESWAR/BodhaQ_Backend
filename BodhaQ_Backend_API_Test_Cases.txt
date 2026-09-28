@@ -1,0 +1,932 @@
+BodhaQ — Backend API Test Cases & Expected Results
+
+============================================================
+0. TEST DATA
+============================================================
+
+Test document:
+BodhaQ_RAG_Test_Material.pdf
+
+Verified document ID:
+12a0ae70-bb08-4bec-88a8-f1af6054e870
+
+Document topic:
+Java HashMap
+
+Verified document content includes:
+- key-value storage
+- unique keys
+- duplicate-key replacement behavior
+- one null key
+- multiple null values
+- no insertion-order guarantee
+- average O(1) get(), put(), and remove()
+- put()
+- get()
+- containsKey()
+- remove()
+- size()
+
+
+============================================================
+1. HEALTH CHECK
+============================================================
+
+Endpoint:
+GET /health
+
+Input:
+No body.
+
+Expected:
+{
+  "status": "ok",
+  "service": "BodhaQ API"
+}
+
+Status:
+VERIFIED
+
+
+============================================================
+2. TOPIC LEARNING
+============================================================
+
+Endpoint:
+POST /api/learn/topic
+
+Input:
+{
+  "topic": "Java HashMap"
+}
+
+Expected:
+HTTP 200
+
+Response structure:
+{
+  "topic": "string",
+  "definition": "string",
+  "key_concepts": ["string"],
+  "example": {
+    "code": "string",
+    "explanation": "string"
+  },
+  "important_points": ["string"]
+}
+
+Status:
+VERIFIED
+
+
+============================================================
+3. PDF UPLOAD / DOCUMENT INGESTION
+============================================================
+
+Endpoint:
+POST /api/documents/upload
+
+Upload:
+BodhaQ_RAG_Test_Material.pdf
+
+Expected:
+{
+  "document_id": "UUID",
+  "filename": "BodhaQ_RAG_Test_Material.pdf",
+  "chunk_count": 2,
+  "message": "Document ingested successfully. 2 chunks stored."
+}
+
+Actual verified result:
+{
+  "document_id": "12a0ae70-bb08-4bec-88a8-f1af6054e870",
+  "filename": "BodhaQ_RAG_Test_Material.pdf",
+  "chunk_count": 2,
+  "message": "Document ingested successfully. 2 chunks stored."
+}
+
+Pipeline:
+PDF -> Text extraction -> Chunking -> Gemini embeddings -> ChromaDB -> SQLite
+
+Status:
+VERIFIED
+
+
+============================================================
+4. LIST DOCUMENTS
+============================================================
+
+Endpoint:
+GET /api/documents
+
+Expected:
+{
+  "documents": [
+    {
+      "document_id": "12a0ae70-bb08-4bec-88a8-f1af6054e870",
+      "filename": "BodhaQ_RAG_Test_Material.pdf",
+      "chunk_count": 2
+    }
+  ]
+}
+
+Status:
+VERIFIED
+
+
+============================================================
+5. GENERATE QUIZ FROM TOPIC
+============================================================
+
+Endpoint:
+POST /api/quiz/generate
+
+Input:
+{
+  "source_type": "topic",
+  "source_id": "Java HashMap",
+  "number_of_questions": 5,
+  "difficulty": "medium"
+}
+
+Expected:
+HTTP 200
+
+Response structure:
+{
+  "quiz_id": "UUID",
+  "source_type": "topic",
+  "source_id": "Java HashMap",
+  "questions": [
+    {
+      "id": 1,
+      "question": "string",
+      "options": [
+        {"letter": "A", "text": "string"},
+        {"letter": "B", "text": "string"},
+        {"letter": "C", "text": "string"},
+        {"letter": "D", "text": "string"}
+      ],
+      "topic": "string"
+    }
+  ]
+}
+
+Important:
+correct_answer and explanation must not be exposed before submission.
+
+Status:
+VERIFIED / FUNCTIONAL PATH TESTED
+
+
+============================================================
+6. GENERATE QUIZ FROM DOCUMENT
+============================================================
+
+Endpoint:
+POST /api/quiz/generate
+
+Input:
+{
+  "source_type": "document",
+  "source_id": "12a0ae70-bb08-4bec-88a8-f1af6054e870",
+  "number_of_questions": 5,
+  "difficulty": "medium"
+}
+
+Expected:
+HTTP 200
+
+Questions should be based on the Java HashMap document.
+
+Verified concepts:
+- java.util
+- duplicate keys
+- existing key replacing its value
+- one null key
+- HashMap ordering
+- average O(1) operations
+
+Status:
+VERIFIED
+
+
+============================================================
+7. SUBMIT NORMAL QUIZ
+============================================================
+
+Endpoint:
+POST /api/quiz/submit
+
+Verified quiz ID:
+55a1f8b2-722a-4d2d-8323-fb1a509eff0c
+
+Input:
+{
+  "quiz_id": "55a1f8b2-722a-4d2d-8323-fb1a509eff0c",
+  "answers": {
+    "1": "A",
+    "2": "A",
+    "3": "B",
+    "4": "A",
+    "5": "D"
+  }
+}
+
+Expected / verified:
+{
+  "quiz_id": "55a1f8b2-722a-4d2d-8323-fb1a509eff0c",
+  "score": 3,
+  "total": 5,
+  "percentage": 60,
+  "mistakes": [
+    {
+      "question_id": 2,
+      "question": "string",
+      "correct_answer": "C",
+      "user_answer": "A",
+      "explanation": "string",
+      "topic": "Key Uniqueness"
+    },
+    {
+      "question_id": 4,
+      "question": "string",
+      "correct_answer": "C",
+      "user_answer": "A",
+      "explanation": "string",
+      "topic": "Ordering"
+    }
+  ]
+}
+
+Important:
+Scoring is deterministic backend logic. The LLM is not involved in scoring.
+
+Status:
+VERIFIED
+
+
+============================================================
+8. WEAK TOPIC DETECTION
+============================================================
+
+Endpoint:
+GET /api/quiz/{quiz_id}/weak-topics
+
+Verified quiz ID:
+55a1f8b2-722a-4d2d-8323-fb1a509eff0c
+
+Expected / verified:
+{
+  "weak_topics": [
+    {"topic": "Key Uniqueness", "accuracy": 0},
+    {"topic": "Ordering", "accuracy": 0}
+  ]
+}
+
+Status:
+VERIFIED
+
+
+============================================================
+9. TARGETED PRACTICE
+============================================================
+
+Endpoint:
+POST /api/quiz/practice
+
+Input:
+{
+  "topic": "Key Uniqueness",
+  "document_id": "12a0ae70-bb08-4bec-88a8-f1af6054e870",
+  "difficulty": "medium",
+  "question_count": 5
+}
+
+Expected:
+HTTP 200
+
+Response:
+{
+  "quiz_id": "UUID",
+  "source_type": "document",
+  "source_id": "12a0ae70-bb08-4bec-88a8-f1af6054e870",
+  "questions": [
+    {
+      "id": 1,
+      "question": "string",
+      "options": [
+        {"letter": "A", "text": "string"}
+      ],
+      "topic": "Key Uniqueness"
+    }
+  ]
+}
+
+Important:
+Questions must be grounded in the original document.
+
+Verified example concept:
+Inserting an existing HashMap key replaces its existing value.
+
+Status:
+VERIFIED
+
+
+============================================================
+10. SUBMIT TARGETED PRACTICE
+============================================================
+
+Endpoint:
+POST /api/quiz/submit
+
+Verified targeted-practice quiz ID:
+7d4e9244-5221-4a00-b985-c889075b7414
+
+Input:
+{
+  "quiz_id": "7d4e9244-5221-4a00-b985-c889075b7414",
+  "answers": {
+    "1": "C",
+    "2": "A",
+    "3": "B",
+    "4": "C",
+    "5": "D"
+  }
+}
+
+Expected / verified:
+{
+  "quiz_id": "7d4e9244-5221-4a00-b985-c889075b7414",
+  "score": 5,
+  "total": 5,
+  "percentage": 100,
+  "mistakes": []
+}
+
+Status:
+VERIFIED
+
+
+============================================================
+11. WEAK TOPICS AFTER SUCCESSFUL PRACTICE
+============================================================
+
+Endpoint:
+GET /api/quiz/7d4e9244-5221-4a00-b985-c889075b7414/weak-topics
+
+Expected:
+{
+  "weak_topics": []
+}
+
+Important:
+The actual response body after the 5/5 practice submission was not captured and verified.
+
+Status:
+NEEDS VERIFICATION
+
+
+============================================================
+12. RAG DOUBT SOLVER — SUPPORTED QUESTION
+============================================================
+
+Endpoint:
+POST /api/doubts/ask
+
+Input:
+{
+  "question": "What happens if I insert an existing key into a HashMap?",
+  "document_id": "12a0ae70-bb08-4bec-88a8-f1af6054e870"
+}
+
+Expected:
+HTTP 200
+
+Answer should state:
+The existing key's value is replaced.
+
+Expected source:
+[
+  {
+    "document": "BodhaQ_RAG_Test_Material.pdf",
+    "page": 1
+  }
+]
+
+Status:
+VERIFIED
+
+
+============================================================
+13. RAG HALLUCINATION / UNSUPPORTED QUESTION
+============================================================
+
+Endpoint:
+POST /api/doubts/ask
+
+Input:
+{
+  "question": "What is the capital of France?",
+  "document_id": "12a0ae70-bb08-4bec-88a8-f1af6054e870"
+}
+
+Expected:
+The system must not answer from Gemini's general knowledge.
+It should state that the provided material does not contain enough information.
+
+Actual verified result:
+{
+  "answer": "The provided material does not contain enough information to answer the question about the capital of France.",
+  "sources": [
+    {
+      "document": "BodhaQ_RAG_Test_Material.pdf",
+      "page": 1
+    }
+  ]
+}
+
+Status:
+VERIFIED
+
+
+============================================================
+14. TOPIC-ONLY DOUBT SOLVER
+============================================================
+
+Endpoint:
+POST /api/doubts/ask
+
+Input:
+{
+  "question": "What is a Java HashMap?"
+}
+
+Important:
+document_id is intentionally omitted.
+
+Expected:
+HTTP 200
+sources must be []
+
+Status:
+VERIFIED
+
+
+============================================================
+15. DELETE DOCUMENT
+============================================================
+
+Endpoint:
+DELETE /api/documents/{document_id}
+
+Input:
+DELETE /api/documents/12a0ae70-bb08-4bec-88a8-f1af6054e870
+
+Expected / verified:
+{
+  "message": "Document '12a0ae70-bb08-4bec-88a8-f1af6054e870' deleted successfully."
+}
+
+Status:
+VERIFIED
+
+
+============================================================
+16. VERIFY DOCUMENT DELETION
+============================================================
+
+Endpoint:
+GET /api/documents
+
+Expected / verified:
+{
+  "documents": []
+}
+
+Status:
+VERIFIED
+
+
+============================================================
+17. RAG REQUEST USING DELETED DOCUMENT
+============================================================
+
+Endpoint:
+POST /api/doubts/ask
+
+Input:
+{
+  "question": "What happens if I insert an existing key into a HashMap?",
+  "document_id": "12a0ae70-bb08-4bec-88a8-f1af6054e870"
+}
+
+Expected / verified:
+HTTP 404
+
+{
+  "detail": {
+    "error": "Document '12a0ae70-bb08-4bec-88a8-f1af6054e870' was not found.",
+    "code": "DOCUMENT_NOT_FOUND"
+  }
+}
+
+Status:
+VERIFIED
+
+
+============================================================
+18. INVALID DOCUMENT ID
+============================================================
+
+Endpoint:
+POST /api/doubts/ask
+
+Input:
+{
+  "question": "What is Java HashMap?",
+  "document_id": "does-not-exist"
+}
+
+Expected:
+HTTP 404
+code: DOCUMENT_NOT_FOUND
+
+Status:
+PENDING
+
+
+============================================================
+19. EMPTY QUESTION
+============================================================
+
+Endpoint:
+POST /api/doubts/ask
+
+Input:
+{
+  "question": "",
+  "document_id": "some-document-id"
+}
+
+Expected:
+HTTP 422 if the request model rejects an empty question.
+
+Status:
+PENDING
+
+
+============================================================
+20. INVALID QUIZ ID
+============================================================
+
+Endpoint:
+POST /api/quiz/submit
+
+Input:
+{
+  "quiz_id": "does-not-exist",
+  "answers": {
+    "1": "A"
+  }
+}
+
+Expected:
+HTTP 404
+code: QUIZ_NOT_FOUND
+
+Status:
+PENDING
+
+
+============================================================
+21. INVALID PRACTICE REQUEST — MISSING DOCUMENT ID
+============================================================
+
+Endpoint:
+POST /api/quiz/practice
+
+Input:
+{
+  "topic": "Key Uniqueness",
+  "difficulty": "medium",
+  "question_count": 5
+}
+
+Expected:
+HTTP 422
+
+Reason:
+document_id is required for grounded targeted practice.
+
+Status:
+PENDING
+
+
+============================================================
+22. INVALID PRACTICE DOCUMENT ID
+============================================================
+
+Endpoint:
+POST /api/quiz/practice
+
+Input:
+{
+  "topic": "Key Uniqueness",
+  "document_id": "does-not-exist",
+  "difficulty": "medium",
+  "question_count": 5
+}
+
+Expected:
+No quiz should be generated.
+Expected HTTP 400 or 404 depending on current route/service mapping.
+
+Status:
+PENDING
+
+
+============================================================
+23. UNSUPPORTED FILE TYPE
+============================================================
+
+Endpoint:
+POST /api/documents/upload
+
+Upload:
+test.txt
+
+Expected:
+HTTP 400
+
+Supported:
+.pdf
+.pptx
+.docx
+
+Status:
+PENDING
+
+
+============================================================
+24. PPTX INGESTION
+============================================================
+
+Endpoint:
+POST /api/documents/upload
+
+Upload:
+test-material.pptx
+
+Expected:
+HTTP 200
+
+{
+  "document_id": "UUID",
+  "filename": "test-material.pptx",
+  "chunk_count": "positive integer",
+  "message": "Document ingested successfully. ..."
+}
+
+Pipeline:
+PPTX -> Text extraction -> Chunking -> Embedding -> ChromaDB -> SQLite
+
+Status:
+PENDING
+
+
+============================================================
+25. DOCX INGESTION
+============================================================
+
+Endpoint:
+POST /api/documents/upload
+
+Upload:
+test-material.docx
+
+Expected:
+HTTP 200
+
+{
+  "document_id": "UUID",
+  "filename": "test-material.docx",
+  "chunk_count": "positive integer",
+  "message": "Document ingested successfully. ..."
+}
+
+Status:
+PENDING
+
+
+============================================================
+26. RAG AFTER PPTX/DOCX UPLOAD
+============================================================
+
+Input:
+{
+  "question": "Ask something explicitly contained in the document",
+  "document_id": "NEW_DOCUMENT_ID"
+}
+
+Expected:
+HTTP 200
+Source-grounded answer
+Non-empty sources list
+
+Status:
+PENDING
+
+
+============================================================
+27. DOCUMENT QUIZ AFTER PPTX/DOCX UPLOAD
+============================================================
+
+Endpoint:
+POST /api/quiz/generate
+
+Input:
+{
+  "source_type": "document",
+  "source_id": "NEW_DOCUMENT_ID",
+  "number_of_questions": 5,
+  "difficulty": "medium"
+}
+
+Expected:
+HTTP 200
+Questions based on uploaded material.
+
+Status:
+PENDING
+
+
+============================================================
+28. COMPLETE END-TO-END LEARNING LOOP
+============================================================
+
+Document
+  ↓
+Generate Quiz
+  ↓
+Submit Quiz
+  ↓
+Mistakes
+  ↓
+Weak Topics
+  ↓
+Targeted Practice
+  ↓
+Submit Practice
+  ↓
+Weak Topics Again
+
+Expected:
+Weak topic leads to practice grounded in the same original document.
+
+Status:
+MOSTLY VERIFIED
+
+Individual components are verified, but the entire chain should be
+run once as a fresh clean test.
+
+
+============================================================
+29. API ERROR CLASSIFICATION
+============================================================
+
+422
+-> Invalid request/schema
+
+400
+-> Invalid business request
+
+404
+-> Document/quiz/resource does not exist
+
+503
+-> AI/RAG/infrastructure service failure
+
+200
+-> Successful operation
+
+
+============================================================
+30. RAG ARCHITECTURE TEST
+============================================================
+
+Expected architecture:
+
+PDF/PPTX/DOCX
+       ↓
+   Extraction
+       ↓
+     Chunks
+       ↓
+   Embeddings
+       ↓
+    ChromaDB
+       ↓
+ User Question
+       ↓
+ Query Embedding
+       ↓
+ Similarity Search
+       ↓
+      Top-K
+       ↓
+ Relevant Chunks
+       ↓
+ Context + Question
+       ↓
+      Gemini
+       ↓
+ Grounded Answer
+       ↓
+ Source References
+
+Status:
+VERIFIED
+
+
+============================================================
+31. COMPLETE BODHAQ LEARNING LOOP
+============================================================
+
+STUDY
+  ↓
+ASSESS
+  ↓
+EVALUATE
+  ↓
+UNDERSTAND
+  ↓
+IDENTIFY WEAKNESS
+  ↓
+PRACTICE
+  ↓
+IMPROVE
+
+Current backend:
+Study material
+     ↓
+Document ingestion
+     ↓
+RAG
+     ↓
+Quiz
+     ↓
+Deterministic evaluation
+     ↓
+Weak-topic detection
+     ↓
+Targeted practice
+     ↓
+Re-evaluation
+
+Status:
+CORE LOOP FUNCTIONALLY VERIFIED
+
+
+============================================================
+FINAL STATUS
+============================================================
+
+VERIFIED:
+- Health
+- Topic learning
+- PDF ingestion
+- PDF extraction
+- Chunking
+- Gemini embeddings
+- ChromaDB storage
+- SQLite document metadata
+- Document listing
+- Document-grounded quiz
+- Quiz answer hiding
+- Deterministic scoring
+- Mistake analysis
+- Weak-topic detection
+- RAG targeted practice
+- Targeted-practice scoring
+- RAG doubt solver
+- Source references
+- Unsupported-question grounding
+- Topic-only doubt mode
+- Document deletion
+- Deleted-document listing verification
+- Deleted-document RAG protection
+
+STILL TO TEST:
+- Weak-topic result after 100% targeted practice
+- PPTX ingestion
+- DOCX ingestion
+- Invalid document ID
+- Invalid quiz ID
+- Invalid practice request
+- Unsupported file type
+- Empty/invalid inputs
+- RAG after PPTX/DOCX
+- Quiz after PPTX/DOCX
+- Fresh complete end-to-end loop
+- AI failure/error handling
