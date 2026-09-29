@@ -1,172 +1,1059 @@
 """
 Response models for BodhaQ API.
-These are what the frontend receives. Correct quiz answers are NEVER
-included in the quiz-generation response — only in the evaluation response.
+
+These models define the data returned to the frontend.
+
+Important security rule:
+    Correct quiz answers are NEVER included in quiz-generation
+    responses. They are returned only as part of quiz evaluation.
+
+Coding security rule:
+    Hidden coding tests are NEVER returned to the frontend.
+    Only hidden test counts are exposed.
 """
-from pydantic import BaseModel, Field
+
+from typing import Literal
+
+from pydantic import BaseModel, Field, field_validator
 
 
-# ── Learning ──────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# LEARNING
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 class CodeExample(BaseModel):
-    code: str
-    explanation: str
+    """A code example included in learning content."""
+
+    code: str = Field(
+        ...,
+        max_length=20000,
+    )
+
+    explanation: str = Field(
+        ...,
+        max_length=10000,
+    )
+
+
+class LearningResource(BaseModel):
+    """
+    External learning resource returned by the resource-search service.
+
+    URLs are obtained from the backend resource-search pipeline.
+    """
+
+    title: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+    )
+
+    url: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+    )
+
+    description: str = Field(
+        default="",
+        max_length=5000,
+    )
+
+    resource_type: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+    )
+
+    domain: str = Field(
+        ...,
+        min_length=1,
+        max_length=300,
+    )
+
+
+class LearningVideo(BaseModel):
+    """
+    Learning video returned by the video-search pipeline.
+
+    Video metadata is optional because the external search provider
+    may not expose fields such as thumbnail, channel, or duration.
+    """
+
+    title: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+    )
+
+    url: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+    )
+
+    thumbnail: str | None = Field(
+        default=None,
+        max_length=2000,
+    )
+
+    channel: str | None = Field(
+        default=None,
+        max_length=300,
+    )
+
+    description: str = Field(
+        default="",
+        max_length=5000,
+    )
+
+    duration: str | None = Field(
+        default=None,
+        max_length=100,
+    )
 
 
 class LearningContent(BaseModel):
-    topic: str
-    definition: str
-    key_concepts: list[str]
+    """Structured learning content generated for a topic."""
+
+    topic: str = Field(
+        ...,
+        min_length=1,
+        max_length=300,
+    )
+
+    definition: str = Field(
+        ...,
+        min_length=1,
+        max_length=20000,
+    )
+
+    key_concepts: list[str] = Field(
+        ...,
+        max_length=50,
+    )
+
     example: CodeExample
-    important_points: list[str]
+
+    important_points: list[str] = Field(
+        ...,
+        max_length=50,
+    )
+
+    resources: list[LearningResource] = Field(
+        default_factory=list,
+        max_length=30,
+    )
+
+    videos: list[LearningVideo] = Field(
+        default_factory=list,
+        max_length=20,
+    )
 
 
-# ── Documents ────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# DOCUMENTS
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 class DocumentUploadResponse(BaseModel):
-    document_id: str
-    filename: str
-    chunk_count: int
-    message: str
+    """Response returned after successfully ingesting a document."""
+
+    document_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+    )
+
+    filename: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+    )
+
+    chunk_count: int = Field(
+        ...,
+        ge=0,
+    )
+
+    message: str = Field(
+        ...,
+        min_length=1,
+        max_length=1000,
+    )
 
 
 class DocumentListItem(BaseModel):
-    document_id: str
-    filename: str
-    chunk_count: int
+    """Summary information for one stored document."""
+
+    document_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+    )
+
+    filename: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+    )
+
+    chunk_count: int = Field(
+        ...,
+        ge=0,
+    )
 
 
 class DocumentListResponse(BaseModel):
-    documents: list[DocumentListItem]
+    """List of stored documents."""
+
+    documents: list[DocumentListItem] = Field(
+        default_factory=list,
+        max_length=100,
+    )
 
 
-# ── Quiz (generation — answers hidden) ───────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# QUIZ — GENERATION
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 class QuizOption(BaseModel):
-    """A single answer option shown to the user."""
-    letter: str        # "A", "B", "C", "D"
-    text: str
+    """A single answer option shown to the student."""
+
+    letter: Literal[
+        "A",
+        "B",
+        "C",
+        "D",
+    ]
+
+    text: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+    )
 
 
 class QuizQuestionPublic(BaseModel):
-    """Question as sent to the frontend — no correct_answer field."""
-    id: int
-    question: str
-    options: list[QuizOption]
-    topic: str = ""   # used later for weak-topic detection
+    """
+    Question returned to the frontend.
+
+    IMPORTANT:
+        correct_answer is intentionally NOT included.
+    """
+
+    id: int = Field(
+        ...,
+        ge=1,
+    )
+
+    question: str = Field(
+        ...,
+        min_length=1,
+        max_length=10000,
+    )
+
+    options: list[QuizOption] = Field(
+        ...,
+        min_length=2,
+        max_length=4,
+    )
+
+    # Used by the backend for weak-topic detection.
+    topic: str = Field(
+        default="",
+        max_length=300,
+    )
+
+    @field_validator("options")
+    @classmethod
+    def validate_options(
+        cls,
+        value: list[QuizOption],
+    ) -> list[QuizOption]:
+        letters = [
+            option.letter
+            for option in value
+        ]
+
+        if len(set(letters)) != len(letters):
+            raise ValueError(
+                "Quiz option letters must be unique."
+            )
+
+        return value
 
 
 class QuizGenerateResponse(BaseModel):
-    quiz_id: str
-    source_type: str
-    source_id: str
-    questions: list[QuizQuestionPublic]
+    """
+    Quiz returned after generation.
+
+    Correct answers are intentionally excluded.
+    """
+
+    quiz_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+    )
+
+    source_type: Literal[
+        "topic",
+        "document",
+    ]
+
+    source_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=300,
+    )
+
+    questions: list[QuizQuestionPublic] = Field(
+        ...,
+        min_length=1,
+        max_length=30,
+    )
 
 
-# ── Quiz (evaluation) ────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# QUIZ — EVALUATION
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 class MistakeDetail(BaseModel):
-    question_id: int
-    question: str
-    correct_answer: str
-    user_answer: str
-    explanation: str
-    topic: str
+    """Details of a question answered incorrectly."""
+
+    question_id: int = Field(
+        ...,
+        ge=1,
+    )
+
+    question: str = Field(
+        ...,
+        min_length=1,
+        max_length=10000,
+    )
+
+    correct_answer: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+    )
+
+    user_answer: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+    )
+
+    explanation: str = Field(
+        ...,
+        min_length=1,
+        max_length=10000,
+    )
+
+    topic: str = Field(
+        ...,
+        min_length=1,
+        max_length=300,
+    )
 
 
 class QuizEvaluationResponse(BaseModel):
-    quiz_id: str
-    score: int
-    total: int
-    percentage: float
-    mistakes: list[MistakeDetail]
-    timestamp: float = 0.0
+    """Deterministic evaluation result for a submitted quiz."""
+
+    quiz_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+    )
+
+    score: int = Field(
+        ...,
+        ge=0,
+    )
+
+    total: int = Field(
+        ...,
+        ge=0,
+    )
+
+    percentage: float = Field(
+        ...,
+        ge=0,
+        le=100,
+    )
+
+    mistakes: list[MistakeDetail] = Field(
+        default_factory=list,
+        max_length=30,
+    )
+
+    # Unix timestamp.
+    timestamp: float = Field(
+        default=0.0,
+        ge=0,
+    )
 
 
-# ── Weak Topics ───────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# WEAK TOPICS
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 class WeakTopicItem(BaseModel):
-    topic: str
-    accuracy: float     # 0–100 %
-    status: str         # "Needs Practice", "Improving", "Learned"
-    source_type: str
-    source_id: str
-    quiz_count: int
+    """
+    Weak-topic information.
+
+    Status values used by the frontend:
+        Needs Practice
+        Improving
+        Learned
+    """
+
+    topic: str = Field(
+        ...,
+        min_length=1,
+        max_length=300,
+    )
+
+    accuracy: float = Field(
+        ...,
+        ge=0,
+        le=100,
+    )
+
+    status: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+    )
+
+    source_type: Literal[
+        "topic",
+        "document",
+    ]
+
+    source_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=300,
+    )
+
+    quiz_count: int = Field(
+        ...,
+        ge=0,
+    )
 
 
 class QuizHistoryItem(BaseModel):
-    quiz_id: str
-    title: str
-    score: int
-    total: int
-    percentage: float
-    timestamp: float
+    """Summary of a completed quiz stored in quiz history."""
+
+    quiz_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+    )
+
+    title: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+    )
+
+    score: int = Field(
+        ...,
+        ge=0,
+    )
+
+    total: int = Field(
+        ...,
+        ge=0,
+    )
+
+    percentage: float = Field(
+        ...,
+        ge=0,
+        le=100,
+    )
+
+    timestamp: float = Field(
+        ...,
+        ge=0,
+    )
 
 
 class WeakTopicsResponse(BaseModel):
-    weak_topics: list[WeakTopicItem]
-    recent_quizzes: list[QuizHistoryItem]
+    """
+    Legacy/backend response containing weak topics
+    and recent quizzes.
+    """
+
+    weak_topics: list[WeakTopicItem] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+
+    recent_quizzes: list[QuizHistoryItem] = Field(
+        default_factory=list,
+        max_length=100,
+    )
 
 
-# ── Doubts ────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# DOUBTS
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 class SourceReference(BaseModel):
-    document: str
-    page: int | None = None
+    """Source used by RAG when answering a document-grounded doubt."""
+
+    document: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+    )
+
+    page: int | None = Field(
+        default=None,
+        ge=1,
+    )
 
 
 class DoubtResponse(BaseModel):
-    answer: str
-    sources: list[SourceReference] = []
+    """Response from the Doubts feature."""
+
+    answer: str = Field(
+        ...,
+        min_length=1,
+        max_length=30000,
+    )
+
+    sources: list[SourceReference] = Field(
+        default_factory=list,
+        max_length=20,
+    )
 
 
-# ── Errors ────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# ERRORS
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 class ErrorResponse(BaseModel):
-    error: str
-    code: str
+    """Standard API error response."""
+
+    error: str = Field(
+        ...,
+        min_length=1,
+        max_length=2000,
+    )
+
+    code: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+    )
 
 
-# ── Resume Prep ───────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# RESUME PREP
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 class ResumeSkill(BaseModel):
-    id: str
-    name: str
-    description: str | None = None
-    status: str
-    score: int | None = None
+    """A skill extracted from a resume."""
+
+    id: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+    )
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=300,
+    )
+
+    description: str | None = Field(
+        default=None,
+        max_length=5000,
+    )
+
+    status: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+    )
+
+    score: int | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+    )
+
 
 class ResumeProject(BaseModel):
-    id: str
-    name: str
-    description: str | None = None
-    technologies: list[str] = []
-    status: str
-    score: int | None = None
+    """A project extracted from a resume."""
+
+    id: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+    )
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=300,
+    )
+
+    description: str | None = Field(
+        default=None,
+        max_length=10000,
+    )
+
+    technologies: list[str] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+
+    status: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+    )
+
+    score: int | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+    )
+
 
 class ResumeCertification(BaseModel):
-    id: str
-    name: str
-    status: str
-    score: int | None = None
+    """A certification extracted from a resume."""
+
+    id: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+    )
+
+    name: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+    )
+
+    status: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+    )
+
+    score: int | None = Field(
+        default=None,
+        ge=0,
+        le=100,
+    )
+
 
 class ResumeProgressResponse(BaseModel):
-    resume_id: str | None
-    filename: str | None
-    skills: list[ResumeSkill] = []
-    projects: list[ResumeProject] = []
-    certifications: list[ResumeCertification] = []
-    overall_progress: float = 0.0
-    items_completed: int = 0
-    total_items: int = 0
+    """Current Resume Prep progress."""
+
+    resume_id: str | None = Field(
+        default=None,
+        max_length=200,
+    )
+
+    filename: str | None = Field(
+        default=None,
+        max_length=500,
+    )
+
+    skills: list[ResumeSkill] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+
+    projects: list[ResumeProject] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+
+    certifications: list[ResumeCertification] = Field(
+        default_factory=list,
+        max_length=100,
+    )
+
+    overall_progress: float = Field(
+        default=0.0,
+        ge=0,
+        le=100,
+    )
+
+    items_completed: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    total_items: int = Field(
+        default=0,
+        ge=0,
+    )
 
 
-# ── Coding ────────────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+# CODING — EXECUTION
+# ─────────────────────────────────────────────────────────────────────────────
+
 
 class CodeExecutionResponse(BaseModel):
-    status: str = Field(..., description="E.g., success, compilation_error, runtime_error, timeout, memory_limit, output_limit, execution_error, unsupported_language")
-    stdout: str
-    stderr: str
-    exit_code: int
-    execution_time_ms: int
+    """
+    Result of executing code.
 
+    Possible status values include:
+        success
+        compilation_error
+        runtime_error
+        timeout
+        memory_limit
+        output_limit
+        execution_error
+        execution_service_unavailable
+        unsupported_language
+    """
+
+    status: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+        description="Execution result status.",
+    )
+
+    stdout: str = Field(
+        default="",
+        max_length=100000,
+    )
+
+    stderr: str = Field(
+        default="",
+        max_length=100000,
+    )
+
+    exit_code: int = Field(
+        default=0,
+    )
+
+    execution_time_ms: int = Field(
+        default=0,
+        ge=0,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CODING — TEST CASES
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class CodingTestCase(BaseModel):
+    """
+    Public coding test case.
+
+    This model is safe to return to the frontend.
+    """
+
+    input: str = Field(
+        ...,
+        max_length=20000,
+    )
+
+    output: str = Field(
+        ...,
+        max_length=20000,
+    )
+
+
+class CodingProblemExample(BaseModel):
+    """Visible problem example."""
+
+    input: str = Field(
+        ...,
+        max_length=20000,
+    )
+
+    output: str = Field(
+        ...,
+        max_length=20000,
+    )
+
+    explanation: str = Field(
+        default="",
+        max_length=5000,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CODING — PROBLEM GENERATION
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class CodingProblemGenerateResponse(BaseModel):
+    """
+    Generated coding workspace.
+
+    IMPORTANT:
+        Hidden test inputs and expected outputs are NOT returned.
+
+        Only:
+            hidden_test_count
+
+        is exposed.
+    """
+
+    problem_id: str = Field(
+        ...,
+        min_length=1,
+        max_length=200,
+    )
+
+    title: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+    )
+
+    statement: str = Field(
+        ...,
+        min_length=1,
+        max_length=20000,
+    )
+
+    input_format: str = Field(
+        ...,
+        max_length=5000,
+    )
+
+    output_format: str = Field(
+        ...,
+        max_length=5000,
+    )
+
+    constraints: str = Field(
+        ...,
+        max_length=10000,
+    )
+
+    examples: list[CodingProblemExample] = Field(
+        default_factory=list,
+        max_length=20,
+    )
+
+    difficulty: str = Field(
+        ...,
+        min_length=1,
+        max_length=50,
+    )
+
+    topics: list[str] = Field(
+        default_factory=list,
+        max_length=30,
+    )
+
+    starter_code_java: str = Field(
+        ...,
+        max_length=50000,
+    )
+
+    starter_code_python: str = Field(
+        ...,
+        max_length=50000,
+    )
+
+    # Visible tests only.
+    public_tests: list[CodingTestCase] = Field(
+        default_factory=list,
+        max_length=50,
+    )
+
+    # NEVER expose hidden test data.
+    hidden_test_count: int = Field(
+        ...,
+        ge=0,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CODING — AI ANALYSIS
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class CodeAnalyzeResponse(BaseModel):
+    """AI explanation of the submitted code."""
+
+    explanation: str = Field(
+        ...,
+        min_length=1,
+        max_length=30000,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CODING — AI IMPROVEMENT
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class CodeImproveResponse(BaseModel):
+    """
+    AI improvement analysis.
+
+    The optimized code is returned as a suggestion.
+    It does not automatically overwrite the user's editor.
+    """
+
+    explanation: str = Field(
+        ...,
+        min_length=1,
+        max_length=30000,
+    )
+
+    current_complexity: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+    )
+
+    possible_complexity: str = Field(
+        ...,
+        min_length=1,
+        max_length=500,
+    )
+
+    optimized_code: str = Field(
+        ...,
+        min_length=1,
+        max_length=50000,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CODING — GENERATED TEST CASES
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class TestCaseGenerateResponse(BaseModel):
+    """
+    Additional tests generated by AI.
+
+    Public tests are returned.
+    Hidden tests remain backend-only.
+    """
+
+    public_tests: list[CodingTestCase] = Field(
+        default_factory=list,
+        max_length=50,
+    )
+
+    hidden_test_count: int = Field(
+        ...,
+        ge=0,
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# CODING — SUBMISSION / JUDGE
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class CodeSubmitResponse(BaseModel):
+    """
+    Coding submission result.
+
+    Hidden-test information is intentionally restricted.
+
+    For hidden failures:
+        - hidden_test_failed is true
+        - failed_test_type is "hidden"
+
+    Hidden input, expected output and actual output are NEVER returned.
+    """
+
+    status: str = Field(
+        ...,
+        min_length=1,
+        max_length=100,
+    )
+
+    details: str = Field(
+        default="",
+        max_length=5000,
+    )
+
+    passed_tests: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    total_tests: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    passed_samples: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    total_samples: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    passed_public: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    total_public: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    passed_hidden: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    total_hidden: int = Field(
+        default=0,
+        ge=0,
+    )
+
+    # Public/sample failure information.
+    failed_test_type: Literal[
+        "sample",
+        "public",
+        "hidden",
+    ] | None = None
+
+    failed_test_input: str | None = Field(
+        default=None,
+        max_length=20000,
+    )
+
+    failed_test_expected: str | None = Field(
+        default=None,
+        max_length=20000,
+    )
+
+    failed_test_actual: str | None = Field(
+        default=None,
+        max_length=20000,
+    )
+
+    # Hidden test failure indicator.
+    hidden_test_failed: bool = False

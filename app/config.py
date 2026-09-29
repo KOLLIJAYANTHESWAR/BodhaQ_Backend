@@ -1,8 +1,32 @@
 """
 Application configuration.
 
-Loads environment variables from backend/.env and exposes
+Loads non-secret environment variables from backend/.env and exposes
 centralized configuration values used throughout BodhaQ.
+
+API keys are intentionally NOT loaded from environment variables.
+
+BodhaQ uses a BYOK (Bring Your Own Key) architecture:
+
+    Browser sessionStorage
+        ↓
+    Request headers
+        ↓
+    FastAPI
+        ↓
+    Gemini / Tavily
+
+Gemini and Tavily API keys are request-scoped and must never be:
+
+    - stored in this configuration module
+    - persisted in SQLite
+    - written to files
+    - stored in localStorage
+    - logged
+    - returned in API responses
+
+The session secret is different from user API keys. It is a server-side
+secret used only to sign and validate anonymous BodhaQ session tokens.
 """
 
 from __future__ import annotations
@@ -13,40 +37,67 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-# ── Base directories ──────────────────────────────────────────────────────────
+# ============================================================================
+# BASE DIRECTORIES
+# ============================================================================
 
 # backend/app/config.py
-#        ↓ parent
+#       ↓ parent
 # backend/app
-#        ↓ parent
+#       ↓ parent
 # backend
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 ENV_FILE = BASE_DIR / ".env"
 
 
-# ── Environment variables ─────────────────────────────────────────────────────
+# ============================================================================
+# ENVIRONMENT VARIABLES
+# ============================================================================
 
-load_dotenv(
-    dotenv_path=ENV_FILE,
-)
+load_dotenv(dotenv_path=ENV_FILE)
 
 
-GEMINI_API_KEY = os.getenv(
-    "GEMINI_API_KEY",
-    ""
+# ----------------------------------------------------------------------------
+# Frontend
+# ----------------------------------------------------------------------------
+
+FRONTEND_URL = os.getenv(
+    "FRONTEND_URL",
+    "http://localhost:5173",
 ).strip()
 
 
-if not GEMINI_API_KEY:
-    import logging
-    logging.getLogger("uvicorn.error").warning(
-        "GEMINI_API_KEY is not configured in backend/.env. "
-        "Requests will require X-Gemini-API-Key header or a valid key."
+# ----------------------------------------------------------------------------
+# Session security
+# ----------------------------------------------------------------------------
+#
+# This is a server-side signing secret for anonymous session tokens.
+#
+# It is NOT a Gemini/Tavily API key and must never be exposed to the browser.
+#
+# Production/local setup:
+#   BODHAQ_SESSION_SECRET=<long random secret>
+#
+# The application intentionally fails to start if the secret is missing.
+# This prevents session tokens from becoming invalid after a restart due to
+# an automatically regenerated secret.
+#
+
+SESSION_SECRET = os.getenv(
+    "BODHAQ_SESSION_SECRET",
+    "",
+).strip()
+
+if not SESSION_SECRET:
+    raise RuntimeError(
+        "BODHAQ_SESSION_SECRET is required."
     )
 
 
-# ── Application directories ───────────────────────────────────────────────────
+# ============================================================================
+# APPLICATION DIRECTORIES
+# ============================================================================
 
 UPLOADS_DIR = BASE_DIR / "uploads"
 
@@ -55,12 +106,16 @@ DATA_DIR = BASE_DIR / "data"
 CHROMA_DIR = DATA_DIR / "chroma"
 
 
-# ── Database ───────────────────────────────────────────────────────────────────
+# ============================================================================
+# DATABASE
+# ============================================================================
 
 DB_PATH = DATA_DIR / "bodhaq.db"
 
 
-# ── Ensure required directories exist ─────────────────────────────────────────
+# ============================================================================
+# ENSURE REQUIRED DIRECTORIES EXIST
+# ============================================================================
 
 UPLOADS_DIR.mkdir(
     parents=True,

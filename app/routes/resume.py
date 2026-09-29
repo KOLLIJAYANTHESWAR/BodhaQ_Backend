@@ -7,41 +7,58 @@ Resume Prep:
     - Generate interview assessments for resume items.
     - Submit resume assessments using the shared evaluation engine.
 
-Gemini authentication is handled exclusively by the backend
-through GEMINI_API_KEY in backend/.env.
+Security:
+    - Gemini API keys are supplied per request.
+    - API keys are never persisted or logged.
+    - Resume data is isolated by anonymous BodhaQ session.
+    - Deterministic resume evaluation does not require Gemini.
 """
 
+from __future__ import annotations
+
 import logging
-import os
+from pathlib import Path
 import uuid
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Header,
+    HTTPException,
+    UploadFile,
+    status,
+)
 
 from app.config import UPLOADS_DIR
+from app.dependencies.session import get_session_id
 from app.models.requests import (
-    ResumeQuizGenerateRequest,
     QuizSubmitRequest,
+    ResumeQuizGenerateRequest,
 )
 from app.models.responses import (
     DocumentUploadResponse,
-    ResumeProgressResponse,
-    QuizGenerateResponse,
     QuizEvaluationResponse,
+    QuizGenerateResponse,
+    ResumeProgressResponse,
 )
-from app.services.evaluation_service import evaluation_service
+from app.services.evaluation_service import (
+    evaluation_service,
+)
 from app.services.gemini_service import (
     GeminiAuthenticationError,
     GeminiQuotaError,
 )
+from app.services.quiz_service import quiz_service
 from app.services.resume_service import resume_service
 
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
 
 MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024
 
@@ -51,9 +68,9 @@ ALLOWED_EXTENSIONS = {
 }
 
 
-# ---------------------------------------------------------------------------
-# Router
-# ---------------------------------------------------------------------------
+# ============================================================================
+# ROUTER
+# ============================================================================
 
 router = APIRouter(
     prefix="/api/resume",
@@ -61,9 +78,154 @@ router = APIRouter(
 )
 
 
-# ---------------------------------------------------------------------------
-# Resume upload
-# ---------------------------------------------------------------------------
+# ============================================================================
+# HELPERS
+# ============================================================================
+
+
+def _get_gemini_api_key(
+    api_key: str | None,
+) -> str:
+    """
+    Validate the request-scoped Gemini API key.
+
+    The key is intentionally never logged, persisted, or returned.
+    """
+
+    if not isinstance(
+        api_key,
+        str,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error": "Gemini API key is required.",
+                "code": "GEMINI_API_KEY_REQUIRED",
+            },
+        )
+
+    normalized = api_key.strip()
+
+    if not normalized:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "error": "Gemini API key is required.",
+                "code": "GEMINI_API_KEY_REQUIRED",
+            },
+        )
+
+    return normalized
+
+
+def _raise_gemini_error(
+    exc: Exception,
+    *,
+    feature: str,
+) -> None:
+    """
+    Convert Gemini exceptions into safe HTTP responses.
+
+    This function always raises HTTPException.
+    """
+
+    if isinstance(
+        exc,
+        GeminiAuthenticationError,
+    ):
+        logger.error(
+            "[Resume] Gemini authentication failed. feature=%s",
+            feature,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": (
+                    "Gemini authentication failed. "
+                    "Please check your API key."
+                ),
+                "code": "AI_AUTHENTICATION_FAILED",
+            },
+        ) from exc
+
+    if isinstance(
+        exc,
+        GeminiQuotaError,
+    ):
+        logger.warning(
+            "[Resume] Gemini quota/rate limit reached. feature=%s",
+            feature,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail={
+                "error": (
+                    "AI service rate limit reached. "
+                    "Please try again later."
+                ),
+                "code": "AI_RATE_LIMIT",
+            },
+        ) from exc
+
+    if isinstance(
+        exc,
+        ValueError,
+    ):
+        logger.warning(
+            "[Resume] Invalid request. feature=%s type=%s",
+            feature,
+            type(exc).__name__,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": str(exc),
+                "code": "INVALID_RESUME_REQUEST",
+            },
+        ) from exc
+
+    if isinstance(
+        exc,
+        RuntimeError,
+    ):
+        logger.exception(
+            "[Resume] Gemini service failed. feature=%s",
+            feature,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": (
+                    "AI service is currently unavailable."
+                ),
+                "code": "AI_SERVICE_UNAVAILABLE",
+            },
+        ) from exc
+
+    logger.exception(
+        "[Resume] Unexpected Gemini failure. feature=%s",
+        feature,
+    )
+
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail={
+            "error": (
+                "Unable to complete the AI operation."
+            ),
+            "code": "AI_SERVICE_UNAVAILABLE",
+        },
+    ) from exc
+
+
+# ============================================================================
+# RESUME UPLOAD
+# ============================================================================
+
 
 @router.post(
     "/upload",
@@ -71,6 +233,11 @@ router = APIRouter(
 )
 async def upload_resume(
     file: UploadFile = File(...),
+    session_id: str = Depends(get_session_id),
+    x_gemini_api_key: str | None = Header(
+        default=None,
+        alias="X-Gemini-API-Key",
+    ),
 ):
     """
     Upload a resume and extract structured information from it.
@@ -79,16 +246,44 @@ async def upload_resume(
         - PDF
         - DOCX
 
-    Gemini authentication is handled by the backend.
-    The frontend never sends a Gemini API key.
+    Resume processing uses the request-scoped Gemini API key.
+
+    The resulting resume belongs exclusively to the authenticated
+    anonymous BodhaQ session.
     """
 
-    filename = file.filename or ""
-    extension = os.path.splitext(filename)[1].lower()
+    api_key = _get_gemini_api_key(
+        x_gemini_api_key
+    )
 
-    # -----------------------------------------------------------------------
-    # Validate extension
-    # -----------------------------------------------------------------------
+    # ------------------------------------------------------------------------
+    # FILENAME VALIDATION
+    # ------------------------------------------------------------------------
+
+    filename = (
+        file.filename.strip()
+        if file.filename
+        else ""
+    )
+
+    if not filename:
+        await file.close()
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": "A valid filename is required.",
+                "code": "INVALID_FILENAME",
+            },
+        )
+
+    # ------------------------------------------------------------------------
+    # EXTENSION VALIDATION
+    # ------------------------------------------------------------------------
+
+    extension = Path(
+        filename
+    ).suffix.lower()
 
     if extension not in ALLOWED_EXTENSIONS:
         await file.close()
@@ -104,29 +299,36 @@ async def upload_resume(
             },
         )
 
-    # -----------------------------------------------------------------------
-    # Prepare temporary upload
-    # -----------------------------------------------------------------------
+    # ------------------------------------------------------------------------
+    # PREPARE TEMPORARY UPLOAD
+    # ------------------------------------------------------------------------
 
-    os.makedirs(
-        UPLOADS_DIR,
+    upload_directory = Path(
+        UPLOADS_DIR
+    )
+
+    upload_directory.mkdir(
+        parents=True,
         exist_ok=True,
     )
 
-    temp_filename = f"{uuid.uuid4()}{extension}"
-
-    temp_path = os.path.join(
-        UPLOADS_DIR,
-        temp_filename,
+    temp_path = (
+        upload_directory
+        / f"{uuid.uuid4().hex}{extension}"
     )
+
+    resume_id: str | None = None
 
     try:
 
+        # --------------------------------------------------------------------
+        # STREAM FILE TO DISK
+        # --------------------------------------------------------------------
+
         total_size = 0
 
-        with open(
-            temp_path,
-            "wb",
+        with temp_path.open(
+            "wb"
         ) as destination:
 
             while True:
@@ -138,119 +340,83 @@ async def upload_resume(
                 if not chunk:
                     break
 
-                total_size += len(chunk)
+                total_size += len(
+                    chunk
+                )
 
-                # -----------------------------------------------------------
-                # File size protection
-                # -----------------------------------------------------------
-
-                if total_size > MAX_FILE_SIZE_BYTES:
-
+                if (
+                    total_size
+                    > MAX_FILE_SIZE_BYTES
+                ):
                     raise HTTPException(
                         status_code=(
                             status.HTTP_413_REQUEST_ENTITY_TOO_LARGE
                         ),
                         detail={
                             "error": (
-                                "File exceeds the maximum size "
-                                "limit of 50 MB."
+                                "File exceeds the maximum "
+                                "size limit of 50 MB."
                             ),
                             "code": "FILE_TOO_LARGE",
                         },
                     )
 
-                destination.write(chunk)
+                destination.write(
+                    chunk
+                )
+
+        # --------------------------------------------------------------------
+        # RESUME INGESTION
+        # --------------------------------------------------------------------
 
         logger.info(
-            "[Resume] Processing uploaded resume: %s",
-            filename,
+            "[Resume] Processing uploaded resume."
         )
 
-        # -------------------------------------------------------------------
-        # Resume ingestion
-        #
-        # IMPORTANT:
-        # Do not pass an API key from the frontend.
-        # resume_service uses the centralized GeminiService.
-        # -------------------------------------------------------------------
-
-        resume_id = resume_service.ingest_resume(
-            temp_path,
-            filename,
+        resume_id = (
+            resume_service.ingest_resume(
+                session_id=session_id,
+                file_path=str(temp_path),
+                original_filename=filename,
+                api_key=api_key,
+            )
         )
 
         logger.info(
-            "[Resume] Resume processed successfully: %s",
-            resume_id,
+            "[Resume] Resume processed successfully."
         )
 
     except HTTPException:
         raise
 
-    except GeminiAuthenticationError as exc:
-
-        logger.error(
-            "[Resume] Gemini authentication failed: %s",
+    except (
+        GeminiAuthenticationError,
+        GeminiQuotaError,
+        ValueError,
+        RuntimeError,
+    ) as exc:
+        _raise_gemini_error(
             exc,
+            feature="resume upload",
+        )
+
+    except OSError as exc:
+        logger.exception(
+            "[Resume] File system error."
         )
 
         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
                 "error": (
-                    "Gemini authentication failed. "
-                    "Check GEMINI_API_KEY in backend/.env."
+                    "Unable to temporarily store "
+                    "the uploaded resume."
                 ),
-                "code": "INVALID_API_KEY",
-            },
-        ) from exc
-
-    except GeminiQuotaError as exc:
-
-        logger.warning(
-            "[Resume] Gemini quota/rate limit reached: %s",
-            exc,
-        )
-
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "error": str(exc),
-                "code": "AI_RATE_LIMIT",
-            },
-        ) from exc
-
-    except ValueError as exc:
-
-        logger.warning(
-            "[Resume] Invalid resume: %s",
-            exc,
-        )
-
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": str(exc),
-                "code": "INVALID_RESUME",
-            },
-        ) from exc
-
-    except RuntimeError as exc:
-
-        logger.exception(
-            "[Resume] Resume processing failed."
-        )
-
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "error": str(exc),
-                "code": "RESUME_AI_SERVICE_UNAVAILABLE",
+                "code": "RESUME_STORAGE_ERROR",
             },
         ) from exc
 
     except Exception as exc:
-
         logger.exception(
             "[Resume] Unexpected resume processing error."
         )
@@ -267,24 +433,40 @@ async def upload_resume(
         ) from exc
 
     finally:
-
         await file.close()
 
-        # -------------------------------------------------------------------
-        # Always remove temporary uploaded file.
-        # -------------------------------------------------------------------
+        # --------------------------------------------------------------------
+        # ALWAYS REMOVE TEMPORARY FILE
+        # --------------------------------------------------------------------
 
-        if os.path.exists(temp_path):
+        try:
+            if temp_path.exists():
+                temp_path.unlink()
 
-            try:
-                os.remove(temp_path)
+        except OSError:
+            logger.warning(
+                "[Resume] Could not remove temporary file."
+            )
 
-            except OSError:
+    # ------------------------------------------------------------------------
+    # RESPONSE
+    # ------------------------------------------------------------------------
 
-                logger.warning(
-                    "[Resume] Could not remove temporary file: %s",
-                    temp_path,
-                )
+    if not resume_id:
+        logger.error(
+            "[Resume] Ingestion returned no resume ID."
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": (
+                    "Resume processing completed without "
+                    "creating a resume record."
+                ),
+                "code": "RESUME_ID_MISSING",
+            },
+        )
 
     return DocumentUploadResponse(
         document_id=resume_id,
@@ -294,25 +476,45 @@ async def upload_resume(
     )
 
 
-# ---------------------------------------------------------------------------
-# Resume progress
-# ---------------------------------------------------------------------------
+# ============================================================================
+# RESUME PROGRESS
+# ============================================================================
+
 
 @router.get(
     "/progress",
     response_model=ResumeProgressResponse,
 )
-def get_resume_progress():
+def get_resume_progress(
+    session_id: str = Depends(get_session_id),
+):
     """
-    Return the latest resume and its preparation progress.
+    Return the latest resume belonging to the current session
+    and its preparation progress.
     """
 
     try:
+        progress = (
+            resume_service.get_latest_resume_progress(
+                session_id=session_id,
+            )
+        )
 
-        progress = resume_service.get_latest_resume_progress()
+    except ValueError as exc:
+        logger.warning(
+            "[Resume] Invalid session/progress request: %s",
+            type(exc).__name__,
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={
+                "error": str(exc),
+                "code": "INVALID_RESUME_PROGRESS_REQUEST",
+            },
+        ) from exc
 
     except Exception as exc:
-
         logger.exception(
             "[Resume] Failed to load resume progress."
         )
@@ -320,13 +522,14 @@ def get_resume_progress():
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
-                "error": "Failed to load resume progress.",
+                "error": (
+                    "Failed to load resume progress."
+                ),
                 "code": "RESUME_PROGRESS_ERROR",
             },
         ) from exc
 
     if not progress:
-
         return ResumeProgressResponse(
             resume_id=None,
             filename=None,
@@ -337,9 +540,10 @@ def get_resume_progress():
     )
 
 
-# ---------------------------------------------------------------------------
-# Generate resume interview quiz
-# ---------------------------------------------------------------------------
+# ============================================================================
+# GENERATE RESUME INTERVIEW QUIZ
+# ============================================================================
+
 
 @router.post(
     "/quiz/generate",
@@ -347,109 +551,68 @@ def get_resume_progress():
 )
 def generate_resume_quiz(
     request: ResumeQuizGenerateRequest,
+    session_id: str = Depends(get_session_id),
+    x_gemini_api_key: str | None = Header(
+        default=None,
+        alias="X-Gemini-API-Key",
+    ),
 ):
     """
     Generate an interview assessment for a resume item.
 
-    The resume item itself is already stored by the backend, so the
-    frontend only needs to provide the item ID and quiz configuration.
+    The resume item is already stored by the backend, so the frontend
+    only provides the item ID and quiz configuration.
+
+    Gemini uses the request-scoped API key supplied by the user.
+
+    The resume item and generated quiz must belong to the current
+    anonymous BodhaQ session.
     """
 
-    try:
+    api_key = _get_gemini_api_key(
+        x_gemini_api_key
+    )
 
+    try:
         logger.info(
-            "[Resume] Generating assessment | item_id=%s | "
+            "[Resume] Generating assessment | "
             "difficulty=%s | questions=%s",
-            request.item_id,
             request.difficulty,
             request.number_of_questions,
         )
 
-        return resume_service.generate_quiz_for_item(
-            item_id=request.item_id,
-            difficulty=request.difficulty,
-            num_questions=request.number_of_questions,
+        return (
+            resume_service.generate_quiz_for_item(
+                session_id=session_id,
+                item_id=request.item_id,
+                difficulty=request.difficulty,
+                num_questions=request.number_of_questions,
+                api_key=api_key,
+            )
         )
 
-    except GeminiAuthenticationError as exc:
-
-        logger.error(
-            "[Resume] Gemini authentication failed during quiz generation: %s",
+    except (
+        GeminiAuthenticationError,
+        GeminiQuotaError,
+        ValueError,
+        RuntimeError,
+    ) as exc:
+        _raise_gemini_error(
             exc,
+            feature="resume quiz",
         )
-
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail={
-                "error": (
-                    "Gemini authentication failed. "
-                    "Check GEMINI_API_KEY in backend/.env."
-                ),
-                "code": "INVALID_API_KEY",
-            },
-        ) from exc
-
-    except GeminiQuotaError as exc:
-
-        logger.warning(
-            "[Resume] Gemini quota/rate limit reached during quiz generation."
-        )
-
-        raise HTTPException(
-            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-            detail={
-                "error": str(exc),
-                "code": "AI_RATE_LIMIT",
-            },
-        ) from exc
-
-    except ValueError as exc:
-
-        logger.warning(
-            "[Resume] Invalid resume quiz request: %s",
-            exc,
-        )
-
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": str(exc),
-                "code": "INVALID_RESUME_QUIZ_REQUEST",
-            },
-        ) from exc
-
-    except RuntimeError as exc:
-
-        logger.exception(
-            "[Resume] Resume quiz generation failed."
-        )
-
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "error": str(exc),
-                "code": "RESUME_AI_SERVICE_UNAVAILABLE",
-            },
-        ) from exc
 
     except Exception as exc:
-
-        logger.exception(
-            "[Resume] Unexpected resume quiz generation error."
+        _raise_gemini_error(
+            exc,
+            feature="resume quiz",
         )
 
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": "Failed to generate the interview assessment.",
-                "code": "QUIZ_GENERATE_ERROR",
-            },
-        ) from exc
 
+# ============================================================================
+# SUBMIT RESUME QUIZ
+# ============================================================================
 
-# ---------------------------------------------------------------------------
-# Submit resume quiz
-# ---------------------------------------------------------------------------
 
 @router.post(
     "/quiz/submit",
@@ -457,6 +620,7 @@ def generate_resume_quiz(
 )
 def submit_resume_quiz(
     request: QuizSubmitRequest,
+    session_id: str = Depends(get_session_id),
 ):
     """
     Submit a resume interview assessment.
@@ -465,45 +629,56 @@ def submit_resume_quiz(
 
     If the quiz belongs to a resume item, the item's progress is
     updated automatically.
+
+    No Gemini API key is required.
     """
 
     try:
 
-        # -------------------------------------------------------------------
-        # Deterministic evaluation
-        # -------------------------------------------------------------------
+        # --------------------------------------------------------------------
+        # DETERMINISTIC EVALUATION
+        # --------------------------------------------------------------------
 
-        evaluation = evaluation_service.evaluate(
-            request.quiz_id,
-            request.answers,
+        evaluation = (
+            evaluation_service.evaluate(
+                session_id=session_id,
+                quiz_id=request.quiz_id,
+                user_answers=request.answers,
+            )
         )
 
-        # -------------------------------------------------------------------
-        # Determine whether this quiz belongs to a resume item.
-        # -------------------------------------------------------------------
+        # --------------------------------------------------------------------
+        # DETERMINE WHETHER THIS QUIZ BELONGS TO A RESUME ITEM
+        # --------------------------------------------------------------------
 
-        from app.services.quiz_service import quiz_service
-
-        stored = quiz_service.get_stored_quiz(
-            request.quiz_id
+        stored = (
+            quiz_service.get_stored_quiz(
+                session_id=session_id,
+                quiz_id=request.quiz_id,
+            )
         )
 
-        if stored and stored.get("source_type") == "resume_item":
+        if (
+            stored
+            and stored.get("source_type")
+            == "resume_item"
+        ):
 
-            item_id = stored.get("source_id")
+            item_id = stored.get(
+                "source_id"
+            )
 
             if item_id:
-
                 resume_service.mark_item_completed(
-                    item_id,
-                    evaluation.score,
-                    evaluation.percentage,
+                    session_id=session_id,
+                    item_id=item_id,
+                    score=evaluation.score,
+                    percentage=evaluation.percentage,
                 )
 
                 logger.info(
-                    "[Resume] Item completed | item_id=%s | "
+                    "[Resume] Item completion recorded | "
                     "score=%s/%s | percentage=%.2f",
-                    item_id,
                     evaluation.score,
                     evaluation.total_questions,
                     evaluation.percentage,
@@ -512,11 +687,61 @@ def submit_resume_quiz(
         return evaluation
 
     except ValueError as exc:
+        logger.warning(
+            "[Resume] Invalid quiz submission: %s",
+            type(exc).__name__,
+        )
+
+        message = str(exc)
+
+        if "not found" in message.lower():
+            response_status = (
+                status.HTTP_404_NOT_FOUND
+            )
+            error_code = "QUIZ_NOT_FOUND"
+
+        else:
+            response_status = (
+                status.HTTP_400_BAD_REQUEST
+            )
+            error_code = "INVALID_QUIZ_SUBMISSION"
 
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
+            status_code=response_status,
             detail={
-                "error": str(exc),
-                "code": "QUIZ_NOT_FOUND",
+                "error": message,
+                "code": error_code,
+            },
+        ) from exc
+
+    except RuntimeError as exc:
+        logger.exception(
+            "[Resume] Resume quiz evaluation failed."
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": (
+                    "Resume assessment service "
+                    "is currently unavailable."
+                ),
+                "code": "RESUME_QUIZ_EVALUATION_UNAVAILABLE",
+            },
+        ) from exc
+
+    except Exception as exc:
+        logger.exception(
+            "[Resume] Unexpected resume quiz submission error."
+        )
+
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "error": (
+                    "Unable to submit the "
+                    "resume assessment."
+                ),
+                "code": "RESUME_QUIZ_SUBMISSION_FAILED",
             },
         ) from exc
