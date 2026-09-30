@@ -124,7 +124,7 @@ def _raise_gemini_error(
     feature: str,
 ) -> None:
     """
-    Convert Gemini exceptions into safe HTTP responses.
+    Convert Gemini-related exceptions into safe HTTP responses.
 
     This function always raises HTTPException.
     """
@@ -603,10 +603,20 @@ def generate_resume_quiz(
         )
 
     except Exception as exc:
-        _raise_gemini_error(
-            exc,
-            feature="resume quiz",
+        logger.exception(
+            "[Resume] Unexpected resume quiz generation error."
         )
+
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": (
+                    "Unable to generate the "
+                    "resume assessment."
+                ),
+                "code": "RESUME_QUIZ_GENERATION_FAILED",
+            },
+        ) from exc
 
 
 # ============================================================================
@@ -680,7 +690,7 @@ def submit_resume_quiz(
                     "[Resume] Item completion recorded | "
                     "score=%s/%s | percentage=%.2f",
                     evaluation.score,
-                    evaluation.total_questions,
+                    evaluation.total,
                     evaluation.percentage,
                 )
 

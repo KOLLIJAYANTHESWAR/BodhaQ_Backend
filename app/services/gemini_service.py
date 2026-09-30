@@ -1094,6 +1094,7 @@ Return ONLY the structured JSON matching the requested schema.
         result = self._generate_structured(
             prompt=prompt,
             schema=_CodingProblemSchema,
+            api_key=api_key,
         )
 
         self._validate_coding_problem(result)

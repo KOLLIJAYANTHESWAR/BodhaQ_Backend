@@ -35,7 +35,6 @@ from app.ingestion.docx_loader import load_docx
 from app.ingestion.pdf_loader import load_pdf
 from app.services.gemini_service import gemini_service
 from app.services.quiz_service import quiz_service
-from app.services.session_service import SessionError, validate_session_token
 
 
 SUPPORTED_EXTENSIONS = {

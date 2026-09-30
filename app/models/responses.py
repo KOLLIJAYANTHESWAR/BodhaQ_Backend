@@ -290,6 +290,12 @@ class QuizGenerateResponse(BaseModel):
     """
     Quiz returned after generation.
 
+    Supported quiz sources:
+        - topic: Topic-based assessment.
+        - document: Document-grounded assessment.
+        - resume_item: Resume interview assessment
+          generated from an extracted resume item.
+
     Correct answers are intentionally excluded.
     """
 
@@ -302,6 +308,7 @@ class QuizGenerateResponse(BaseModel):
     source_type: Literal[
         "topic",
         "document",
+        "resume_item",
     ]
 
     source_id: str = Field(
@@ -1057,3 +1064,4 @@ class CodeSubmitResponse(BaseModel):
 
     # Hidden test failure indicator.
     hidden_test_failed: bool = False
+    

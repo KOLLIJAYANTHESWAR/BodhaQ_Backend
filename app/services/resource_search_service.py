@@ -226,6 +226,16 @@ class ResourceSearchService:
 
         YouTube results are intentionally excluded because videos have
         their own dedicated search endpoint and frontend section.
+
+        Args:
+            topic:
+                Study topic to search for.
+
+            api_key:
+                Request-scoped Tavily API key.
+
+            max_results:
+                Maximum number of resources to return.
         """
 
         topic = self._clean_topic(topic)
@@ -235,9 +245,13 @@ class ResourceSearchService:
                 "Topic cannot be empty."
             )
 
-        self._validate_topic_length(topic)
+        self._validate_topic_length(
+            topic
+        )
 
-        api_key = self._validate_api_key(api_key)
+        api_key = self._validate_api_key(
+            api_key
+        )
 
         max_results = self._normalize_result_count(
             max_results,
@@ -267,7 +281,6 @@ class ResourceSearchService:
             return [
                 self._resource_to_dict(resource)
                 for resource in resources
-                if self._is_valid_resource(resource)
             ]
 
         except (
@@ -307,6 +320,16 @@ class ResourceSearchService:
         The provider may not expose thumbnail, channel, or duration
         metadata. Those fields are therefore optional and are only
         populated when the provider actually returns them.
+
+        Args:
+            topic:
+                Study topic to search for.
+
+            api_key:
+                Request-scoped Tavily API key.
+
+            max_results:
+                Maximum number of videos to return.
         """
 
         topic = self._clean_topic(topic)
@@ -316,9 +339,13 @@ class ResourceSearchService:
                 "Topic cannot be empty."
             )
 
-        self._validate_topic_length(topic)
+        self._validate_topic_length(
+            topic
+        )
 
-        api_key = self._validate_api_key(api_key)
+        api_key = self._validate_api_key(
+            api_key
+        )
 
         max_results = self._normalize_result_count(
             max_results,
@@ -371,6 +398,92 @@ class ResourceSearchService:
             ) from exc
 
     # ========================================================================
+    # PUBLIC API — CONNECTION TEST
+    # ========================================================================
+
+    def test_connection(
+        self,
+        api_key: str,
+    ) -> dict[str, Any]:
+        """
+        Validate a request-scoped Tavily API key.
+
+        The connection test intentionally performs a minimal Tavily search
+        rather than relying on a separate provider endpoint. This verifies
+        that the supplied key is accepted by the same API used for normal
+        resource searches.
+
+        The API key remains request-scoped and is never stored or logged.
+        """
+
+        api_key = self._validate_api_key(api_key)
+
+        payload = {
+            "api_key": api_key,
+            "query": "BodhaQ learning",
+            "search_depth": "basic",
+            "topic": "general",
+            "max_results": 1,
+            "include_answer": False,
+            "include_raw_content": False,
+            "include_images": False,
+        }
+
+        try:
+            response = requests.post(
+                TAVILY_SEARCH_URL,
+                json=payload,
+                timeout=REQUEST_TIMEOUT_SECONDS,
+            )
+
+        except requests.Timeout as exc:
+            raise RuntimeError(
+                "Tavily connection timed out."
+            ) from exc
+
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                "Unable to connect to Tavily."
+            ) from exc
+
+        if response.status_code in {401, 403}:
+            raise ResourceSearchAuthenticationError(
+                "Tavily API key authentication failed."
+            )
+
+        if response.status_code == 429:
+            raise ResourceSearchQuotaError(
+                "Tavily API rate limit reached."
+            )
+
+        if response.status_code >= 500:
+            raise RuntimeError(
+                "Tavily service is temporarily unavailable."
+            )
+
+        if response.status_code >= 400:
+            raise RuntimeError(
+                "Tavily connection test failed."
+            )
+
+        try:
+            data = response.json()
+        except ValueError as exc:
+            raise RuntimeError(
+                "Tavily returned an invalid response."
+            ) from exc
+
+        if not isinstance(data, dict):
+            raise RuntimeError(
+                "Tavily returned an invalid response."
+            )
+
+        return {
+            "valid": True,
+            "message": "Tavily connection successful.",
+        }
+
+    # ========================================================================
     # TAVILY
     # ========================================================================
 
@@ -389,13 +502,19 @@ class ResourceSearchService:
             videos
         """
 
-        api_key = self._validate_api_key(api_key)
+        api_key = self._validate_api_key(
+            api_key
+        )
 
         if search_type == "videos":
-            query = self._build_video_search_query(topic)
+            query = self._build_video_search_query(
+                topic
+            )
 
         elif search_type == "resources":
-            query = self._build_search_query(topic)
+            query = self._build_search_query(
+                topic
+            )
 
         else:
             raise ValueError(
@@ -471,14 +590,23 @@ class ResourceSearchService:
                 "Online search returned invalid data."
             ) from exc
 
-        if not isinstance(data, dict):
+        if not isinstance(
+            data,
+            dict,
+        ):
             raise RuntimeError(
                 "Online search returned an invalid response."
             )
 
-        results = data.get("results", [])
+        results = data.get(
+            "results",
+            [],
+        )
 
-        if not isinstance(results, list):
+        if not isinstance(
+            results,
+            list,
+        ):
             logger.warning(
                 "[Search] Tavily response contained an invalid "
                 "'results' field."
@@ -486,10 +614,16 @@ class ResourceSearchService:
 
             return []
 
+        # Provider responses are bounded before further processing.
         return [
             result
-            for result in results[:MAX_PROCESSED_RESULTS]
-            if isinstance(result, dict)
+            for result in results[
+                :MAX_PROCESSED_RESULTS
+            ]
+            if isinstance(
+                result,
+                dict,
+            )
         ]
 
     # ========================================================================
@@ -543,36 +677,58 @@ class ResourceSearchService:
         seen_urls: set[str] = set()
 
         for result in results:
-            if not isinstance(result, dict):
+
+            if not isinstance(
+                result,
+                dict,
+            ):
                 continue
 
-            url = self._clean_url(result.get("url"))
+            url = self._clean_url(
+                result.get("url")
+            )
 
             if not url:
                 continue
 
-            normalized_url = self._normalize_url(url)
+            normalized_url = self._normalize_url(
+                url
+            )
 
             if normalized_url in seen_urls:
                 continue
 
-            seen_urls.add(normalized_url)
+            seen_urls.add(
+                normalized_url
+            )
 
-            title = self._clean_text(result.get("title"))
-            content = self._clean_text(result.get("content"))
+            title = self._clean_text(
+                result.get("title")
+            )
+
+            content = self._clean_text(
+                result.get("content")
+            )
 
             if not title:
                 continue
 
-            domain = self._extract_domain(url)
+            domain = self._extract_domain(
+                url
+            )
 
             if not domain:
                 continue
 
-            if self._is_blocked_domain(domain):
+            if self._is_blocked_domain(
+                domain
+            ):
                 continue
 
-            if exclude_videos and domain in YOUTUBE_DOMAINS:
+            if (
+                exclude_videos
+                and domain in YOUTUBE_DOMAINS
+            ):
                 continue
 
             resource_type = self._classify_resource(
@@ -588,16 +744,24 @@ class ResourceSearchService:
                 content=content,
                 domain=domain,
                 resource_type=resource_type,
-                provider_score=result.get("score"),
+                provider_score=result.get(
+                    "score"
+                ),
             )
 
-            description = self._build_description(content)
+            description = self._build_description(
+                content
+            )
 
             candidates.append(
                 LearningResource(
-                    title=title[:MAX_TITLE_LENGTH],
+                    title=title[
+                        :MAX_TITLE_LENGTH
+                    ],
                     url=url,
-                    description=description[:MAX_DESCRIPTION_LENGTH],
+                    description=description[
+                        :MAX_DESCRIPTION_LENGTH
+                    ],
                     resource_type=resource_type,
                     domain=domain,
                     relevance_score=score,
@@ -605,7 +769,9 @@ class ResourceSearchService:
             )
 
         candidates.sort(
-            key=lambda resource: resource.relevance_score,
+            key=lambda resource: (
+                resource.relevance_score
+            ),
             reverse=True,
         )
 
@@ -614,7 +780,9 @@ class ResourceSearchService:
             max_results,
         )
 
-        return candidates[:max_results]
+        return candidates[
+            :max_results
+        ]
 
     # ========================================================================
     # VIDEO PROCESSING
@@ -634,42 +802,62 @@ class ResourceSearchService:
         seen_urls: set[str] = set()
 
         for result in results:
-            if not isinstance(result, dict):
+
+            if not isinstance(
+                result,
+                dict,
+            ):
                 continue
 
-            url = self._clean_url(result.get("url"))
+            url = self._clean_url(
+                result.get("url")
+            )
 
             if not url:
                 continue
 
-            domain = self._extract_domain(url)
+            domain = self._extract_domain(
+                url
+            )
 
             if domain not in YOUTUBE_DOMAINS:
                 continue
 
-            normalized_url = self._normalize_url(url)
+            normalized_url = self._normalize_url(
+                url
+            )
 
             if normalized_url in seen_urls:
                 continue
 
-            seen_urls.add(normalized_url)
+            seen_urls.add(
+                normalized_url
+            )
 
-            title = self._clean_text(result.get("title"))
+            title = self._clean_text(
+                result.get("title")
+            )
 
             if not title:
                 continue
 
             description = self._build_description(
-                self._clean_text(result.get("content"))
+                self._clean_text(
+                    result.get("content")
+                )
             )
 
             score = self._calculate_video_score(
                 topic=topic,
                 title=title,
                 description=description,
-                provider_score=result.get("score"),
+                provider_score=result.get(
+                    "score"
+                ),
             )
 
+            # Tavily may expose metadata in provider-specific fields.
+            # Only use metadata when it is actually present.
             thumbnail = self._optional_string(
                 result.get("thumbnail")
             )
@@ -684,7 +872,9 @@ class ResourceSearchService:
 
             candidates.append(
                 {
-                    "title": title[:MAX_TITLE_LENGTH],
+                    "title": title[
+                        :MAX_TITLE_LENGTH
+                    ],
                     "url": url,
                     "thumbnail": thumbnail,
                     "channel": channel,
@@ -697,11 +887,16 @@ class ResourceSearchService:
             )
 
         candidates.sort(
-            key=lambda video: video.get("_score", 0.0),
+            key=lambda video: video.get(
+                "_score",
+                0.0,
+            ),
             reverse=True,
         )
 
-        return candidates[:max_results]
+        return candidates[
+            :max_results
+        ]
 
     # ========================================================================
     # SCORING
@@ -724,11 +919,20 @@ class ResourceSearchService:
 
         score = 0.0
 
-        topic_tokens = self._tokenize(topic)
-        title_tokens = self._tokenize(title)
-        content_tokens = self._tokenize(content)
+        topic_tokens = self._tokenize(
+            topic
+        )
+
+        title_tokens = self._tokenize(
+            title
+        )
+
+        content_tokens = self._tokenize(
+            content
+        )
 
         if topic_tokens:
+
             title_matches = sum(
                 1
                 for token in topic_tokens
@@ -742,16 +946,23 @@ class ResourceSearchService:
             )
 
             title_relevance = (
-                title_matches / len(topic_tokens)
+                title_matches
+                / len(topic_tokens)
             )
 
             content_relevance = min(
-                content_matches / len(topic_tokens),
+                content_matches
+                / len(topic_tokens),
                 1.0,
             )
 
-            score += title_relevance * 45
-            score += content_relevance * 25
+            score += (
+                title_relevance * 45
+            )
+
+            score += (
+                content_relevance * 25
+            )
 
         if isinstance(
             provider_score,
@@ -771,9 +982,13 @@ class ResourceSearchService:
                 * 15
             )
 
-        domain_score = self._domain_quality(domain)
+        domain_score = self._domain_quality(
+            domain
+        )
 
-        score += domain_score * 0.12
+        score += (
+            domain_score * 0.12
+        )
 
         type_bonus = {
             "official_documentation": 10,
@@ -791,7 +1006,10 @@ class ResourceSearchService:
             0,
         )
 
-        return round(score, 2)
+        return round(
+            score,
+            2,
+        )
 
     def _calculate_video_score(
         self,
@@ -806,11 +1024,20 @@ class ResourceSearchService:
 
         score = 0.0
 
-        topic_tokens = self._tokenize(topic)
-        title_tokens = self._tokenize(title)
-        description_tokens = self._tokenize(description)
+        topic_tokens = self._tokenize(
+            topic
+        )
+
+        title_tokens = self._tokenize(
+            title
+        )
+
+        description_tokens = self._tokenize(
+            description
+        )
 
         if topic_tokens:
+
             title_matches = sum(
                 1
                 for token in topic_tokens
@@ -824,11 +1051,13 @@ class ResourceSearchService:
             )
 
             score += (
-                title_matches / len(topic_tokens)
+                title_matches
+                / len(topic_tokens)
             ) * 60
 
             score += min(
-                description_matches / len(topic_tokens),
+                description_matches
+                / len(topic_tokens),
                 1.0,
             ) * 20
 
@@ -850,7 +1079,10 @@ class ResourceSearchService:
                 * 20
             )
 
-        return round(score, 2)
+        return round(
+            score,
+            2,
+        )
 
     # ========================================================================
     # RESOURCE CLASSIFICATION
@@ -1004,16 +1236,26 @@ class ResourceSearchService:
         if not resources:
             return []
 
-        selected: list[LearningResource] = []
+        selected: list[
+            LearningResource
+        ] = []
 
-        domain_counts: dict[str, int] = {}
-        type_counts: dict[str, int] = {}
+        domain_counts: dict[
+            str,
+            int,
+        ] = {}
+
+        type_counts: dict[
+            str,
+            int,
+        ] = {}
 
         # --------------------------------------------------------------------
         # First pass: diversity
         # --------------------------------------------------------------------
 
         for resource in resources:
+
             if len(selected) >= max_results:
                 break
 
@@ -1033,30 +1275,44 @@ class ResourceSearchService:
             if type_count >= 3:
                 continue
 
-            selected.append(resource)
+            selected.append(
+                resource
+            )
 
-            domain_counts[resource.domain] = domain_count + 1
-            type_counts[resource.resource_type] = type_count + 1
+            domain_counts[
+                resource.domain
+            ] = domain_count + 1
+
+            type_counts[
+                resource.resource_type
+            ] = type_count + 1
 
         # --------------------------------------------------------------------
         # Second pass: fill remaining slots
         # --------------------------------------------------------------------
 
         if len(selected) < max_results:
+
             selected_urls = {
                 resource.url
                 for resource in selected
             }
 
             for resource in resources:
+
                 if len(selected) >= max_results:
                     break
 
                 if resource.url in selected_urls:
                     continue
 
-                selected.append(resource)
-                selected_urls.add(resource.url)
+                selected.append(
+                    resource
+                )
+
+                selected_urls.add(
+                    resource.url
+                )
 
         return selected
 
@@ -1072,7 +1328,10 @@ class ResourceSearchService:
         Accept only HTTP(S) URLs.
         """
 
-        if not isinstance(value, str):
+        if not isinstance(
+            value,
+            str,
+        ):
             return ""
 
         url = value.strip()
@@ -1080,7 +1339,9 @@ class ResourceSearchService:
         if not url:
             return ""
 
-        parsed = urlparse(url)
+        parsed = urlparse(
+            url
+        )
 
         if parsed.scheme not in {
             "http",
@@ -1101,7 +1362,9 @@ class ResourceSearchService:
         Normalize URL for duplicate detection.
         """
 
-        parsed = urlparse(url)
+        parsed = urlparse(
+            url
+        )
 
         domain = (
             parsed.netloc
@@ -1138,7 +1401,9 @@ class ResourceSearchService:
         """
 
         try:
-            parsed = urlparse(url)
+            parsed = urlparse(
+                url
+            )
 
             return (
                 parsed.netloc
@@ -1165,9 +1430,12 @@ class ResourceSearchService:
         domain = domain.lower()
 
         if domain in DOMAIN_QUALITY:
-            return DOMAIN_QUALITY[domain]
+            return DOMAIN_QUALITY[
+                domain
+            ]
 
         for known_domain, score in DOMAIN_QUALITY.items():
+
             if domain.endswith(
                 f".{known_domain}"
             ):
@@ -1189,6 +1457,7 @@ class ResourceSearchService:
             return True
 
         for blocked in LOW_QUALITY_DOMAINS:
+
             if domain.endswith(
                 f".{blocked}"
             ):
@@ -1208,7 +1477,10 @@ class ResourceSearchService:
         Clean arbitrary provider text.
         """
 
-        if not isinstance(value, str):
+        if not isinstance(
+            value,
+            str,
+        ):
             return ""
 
         return re.sub(
@@ -1227,7 +1499,10 @@ class ResourceSearchService:
         Unknown/missing provider metadata remains None.
         """
 
-        if not isinstance(value, str):
+        if not isinstance(
+            value,
+            str,
+        ):
             return None
 
         value = value.strip()
@@ -1243,7 +1518,9 @@ class ResourceSearchService:
         Create a short resource description.
         """
 
-        content = ResourceSearchService._clean_text(content)
+        content = ResourceSearchService._clean_text(
+            content
+        )
 
         if not content:
             return (
@@ -1253,12 +1530,18 @@ class ResourceSearchService:
         if len(content) <= max_length:
             return content
 
-        shortened = content[:max_length]
+        shortened = content[
+            :max_length
+        ]
 
-        last_space = shortened.rfind(" ")
+        last_space = shortened.rfind(
+            " "
+        )
 
         if last_space > 100:
-            shortened = shortened[:last_space]
+            shortened = shortened[
+                :last_space
+            ]
 
         return shortened + "..."
 
@@ -1270,7 +1553,10 @@ class ResourceSearchService:
         Normalize topic input.
         """
 
-        if not isinstance(topic, str):
+        if not isinstance(
+            topic,
+            str,
+        ):
             return ""
 
         return re.sub(
@@ -1342,7 +1628,10 @@ class ResourceSearchService:
         It is never stored on the service instance.
         """
 
-        if not isinstance(api_key, str):
+        if not isinstance(
+            api_key,
+            str,
+        ):
             raise ValueError(
                 "Tavily API key cannot be empty."
             )
@@ -1387,12 +1676,18 @@ class ResourceSearchService:
         Validate and normalize result count.
         """
 
-        if isinstance(count, bool):
+        if isinstance(
+            count,
+            bool,
+        ):
             raise ValueError(
                 "max_results must be an integer."
             )
 
-        if not isinstance(count, int):
+        if not isinstance(
+            count,
+            int,
+        ):
             raise ValueError(
                 "max_results must be an integer."
             )
@@ -1418,14 +1713,35 @@ class ResourceSearchService:
         """
 
         return (
-            isinstance(resource.title, str)
-            and bool(resource.title.strip())
-            and isinstance(resource.url, str)
-            and bool(resource.url.strip())
-            and isinstance(resource.description, str)
-            and isinstance(resource.resource_type, str)
-            and isinstance(resource.domain, str)
-            and bool(resource.domain.strip())
+            isinstance(
+                resource.title,
+                str,
+            )
+            and bool(
+                resource.title.strip()
+            )
+            and isinstance(
+                resource.url,
+                str,
+            )
+            and bool(
+                resource.url.strip()
+            )
+            and isinstance(
+                resource.description,
+                str,
+            )
+            and isinstance(
+                resource.resource_type,
+                str,
+            )
+            and isinstance(
+                resource.domain,
+                str,
+            )
+            and bool(
+                resource.domain.strip()
+            )
         )
 
     # ========================================================================
@@ -1481,7 +1797,9 @@ class ResourceSearchService:
             )
 
         return {
-            "title": title[:MAX_TITLE_LENGTH],
+            "title": title[
+                :MAX_TITLE_LENGTH
+            ],
             "url": url,
             "thumbnail": (
                 ResourceSearchService._optional_string(
@@ -1496,7 +1814,9 @@ class ResourceSearchService:
             "description": (
                 ResourceSearchService._clean_text(
                     video.get("description")
-                )[:MAX_DESCRIPTION_LENGTH]
+                )[
+                    :MAX_DESCRIPTION_LENGTH
+                ]
             ),
             "duration": (
                 ResourceSearchService._optional_string(
