@@ -7,7 +7,8 @@ Responsibilities:
     - Validate and rank retrieved chunks.
     - Build document-grounded context for Gemini.
 
-Gemini API keys are request-scoped and are never stored or logged.
+Security:
+    Gemini API keys are request-scoped and are never stored or logged.
 
 Session isolation:
     - Every retrieval operation requires a valid session_id.
@@ -22,11 +23,9 @@ import logging
 import math
 import time
 import uuid
-from typing import Any
 
 from app.rag.embeddings import embed_query
 from app.rag.vector_store import query_collection
-
 
 logger = logging.getLogger(__name__)
 
@@ -70,38 +69,25 @@ def _validate_session_id(
     service if it is called directly.
     """
 
-    if not isinstance(
-        session_id,
-        str,
-    ):
-        raise ValueError(
-            "Session ID must be a string."
-        )
+    if not isinstance(session_id, str):
+        raise ValueError("Session ID must be a string.")
 
     normalized = session_id.strip()
 
     if not normalized:
-        raise ValueError(
-            "Session ID cannot be empty."
-        )
+        raise ValueError("Session ID cannot be empty.")
 
     if len(normalized) > MAX_SESSION_ID_LENGTH:
-        raise ValueError(
-            "Session ID is too long."
-        )
+        raise ValueError("Session ID is too long.")
 
     try:
-        uuid.UUID(
-            normalized
-        )
+        uuid.UUID(normalized)
     except (
         ValueError,
         AttributeError,
         TypeError,
     ) as exc:
-        raise ValueError(
-            "Invalid session ID."
-        ) from exc
+        raise ValueError("Invalid session ID.") from exc
 
     return normalized
 
@@ -115,20 +101,13 @@ def _validate_api_key(
     The key is never logged or persisted.
     """
 
-    if not isinstance(
-        api_key,
-        str,
-    ):
-        raise ValueError(
-            "Gemini API key must be a string."
-        )
+    if not isinstance(api_key, str):
+        raise ValueError("Gemini API key must be a string.")
 
     normalized = api_key.strip()
 
     if not normalized:
-        raise ValueError(
-            "Gemini API key is required."
-        )
+        raise ValueError("Gemini API key is required.")
 
     return normalized
 
@@ -140,25 +119,16 @@ def _validate_document_id(
     Validate and normalize a document ID.
     """
 
-    if not isinstance(
-        document_id,
-        str,
-    ):
-        raise ValueError(
-            "Document ID must be a string."
-        )
+    if not isinstance(document_id, str):
+        raise ValueError("Document ID must be a string.")
 
     normalized = document_id.strip()
 
     if not normalized:
-        raise ValueError(
-            "Document ID cannot be empty."
-        )
+        raise ValueError("Document ID cannot be empty.")
 
     if len(normalized) > MAX_DOCUMENT_ID_LENGTH:
-        raise ValueError(
-            "Document ID is too long."
-        )
+        raise ValueError("Document ID is too long.")
 
     return normalized
 
@@ -170,25 +140,16 @@ def _validate_question(
     Validate and normalize a user question.
     """
 
-    if not isinstance(
-        question,
-        str,
-    ):
-        raise ValueError(
-            "Question must be a string."
-        )
+    if not isinstance(question, str):
+        raise ValueError("Question must be a string.")
 
     normalized = question.strip()
 
     if not normalized:
-        raise ValueError(
-            "Question cannot be empty."
-        )
+        raise ValueError("Question cannot be empty.")
 
     if len(normalized) > MAX_QUESTION_LENGTH:
-        raise ValueError(
-            "Question is too long."
-        )
+        raise ValueError("Question is too long.")
 
     return normalized
 
@@ -206,9 +167,7 @@ def _validate_top_k(
         or not isinstance(top_k, int)
         or top_k <= 0
     ):
-        raise ValueError(
-            "top_k must be a positive integer."
-        )
+        raise ValueError("top_k must be a positive integer.")
 
     return min(
         top_k,
@@ -301,7 +260,6 @@ def retrieve_context(
     started_at = time.perf_counter()
 
     try:
-
         query_vector = embed_query(
             normalized_question,
             api_key=validated_api_key,
@@ -318,7 +276,6 @@ def retrieve_context(
         raise
 
     except Exception as exc:
-
         logger.exception(
             "[RAG Retriever] Context retrieval failed | "
             "document_id=%s",
@@ -351,7 +308,6 @@ def retrieve_context(
     relevant: list[dict] = []
 
     for result in results:
-
         if not isinstance(
             result,
             dict,
@@ -492,7 +448,6 @@ def build_context_string(
         chunks[:MAX_CONTEXT_CHUNKS],
         start=1,
     ):
-
         if not isinstance(
             chunk,
             dict,
@@ -517,7 +472,6 @@ def build_context_string(
         # Bound individual chunks before placing them into the
         # Gemini context.
         if len(normalized_text) > MAX_CHUNK_TEXT_LENGTH:
-
             normalized_text = (
                 normalized_text[
                     :MAX_CHUNK_TEXT_LENGTH

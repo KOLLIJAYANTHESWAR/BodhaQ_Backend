@@ -35,7 +35,6 @@ import uuid
 from pathlib import Path
 
 from app.config import DB_PATH
-
 from app.ingestion.chunker import chunk_pages
 from app.ingestion.docx_loader import load_docx
 from app.ingestion.pdf_loader import load_pdf
@@ -74,6 +73,7 @@ SESSION_ID_PATTERN = re.compile(
 )
 
 SQLITE_BUSY_TIMEOUT_SECONDS = 10
+MAX_DOCUMENTS_PER_SESSION = 5
 
 
 # ============================================================================
@@ -141,12 +141,11 @@ def _get_db() -> sqlite3.Connection:
     # ------------------------------------------------------------------------
     # SAFE MIGRATION FROM THE PREVIOUS SCHEMA
     # ------------------------------------------------------------------------
-    #
+
     # Older BodhaQ databases did not have session_id.
-    #
+
     # SQLite does not support ADD COLUMN IF NOT EXISTS consistently across
     # all supported versions, so inspect the schema first.
-    #
 
     columns = {
         row["name"]
@@ -156,7 +155,6 @@ def _get_db() -> sqlite3.Connection:
     }
 
     if "session_id" not in columns:
-
         conn.execute(
             """
             ALTER TABLE documents
@@ -381,7 +379,6 @@ class DocumentService:
 
         Returns:
             Dictionary containing:
-
                 document_id
                 filename
                 chunk_count
@@ -484,7 +481,6 @@ class DocumentService:
         valid_chunks: list[dict] = []
 
         for chunk in chunks:
-
             if not isinstance(
                 chunk,
                 dict,
@@ -555,9 +551,9 @@ class DocumentService:
         # --------------------------------------------------------------------
 
         vector_stored = False
+        metadata_stored = False
 
         try:
-
             upsert_chunks(
                 session_id=normalized_session_id,
                 document_id=document_id,
@@ -572,7 +568,6 @@ class DocumentService:
             # ---------------------------------------------------------------
 
             with _get_db() as conn:
-
                 conn.execute(
                     """
                     INSERT INTO documents (
@@ -591,25 +586,52 @@ class DocumentService:
                     ),
                 )
 
-        except Exception:
+                metadata_stored = True
 
+            # The document is now persisted. Enforce the session limit.
+            self._enforce_document_limit(
+                normalized_session_id,
+            )
+
+        except Exception:
             # ---------------------------------------------------------------
-            # ROLLBACK VECTOR DATA IF SQLITE PERSISTENCE FAILS
+            # ROLLBACK VECTOR DATA
             # ---------------------------------------------------------------
 
             if vector_stored:
-
                 try:
-
                     delete_collection(
                         session_id=normalized_session_id,
                         document_id=document_id,
                     )
-
                 except Exception:
                     logger.exception(
                         "[DocumentService] Failed to clean up "
-                        "vector data after metadata persistence failure."
+                        "vector data after ingestion failure."
+                    )
+
+            # ---------------------------------------------------------------
+            # ROLLBACK SQLITE METADATA FOR THE NEW DOCUMENT
+            # ---------------------------------------------------------------
+
+            if metadata_stored:
+                try:
+                    with _get_db() as conn:
+                        conn.execute(
+                            """
+                            DELETE FROM documents
+                            WHERE session_id = ?
+                              AND document_id = ?
+                            """,
+                            (
+                                normalized_session_id,
+                                document_id,
+                            ),
+                        )
+                except Exception:
+                    logger.exception(
+                        "[DocumentService] Failed to clean up "
+                        "metadata after ingestion failure."
                     )
 
             raise
@@ -629,6 +651,93 @@ class DocumentService:
             "chunk_count": len(chunks),
         }
 
+    def _enforce_document_limit(
+        self,
+        session_id: str,
+    ) -> None:
+        """
+        Enforce the maximum number of documents for a session.
+
+        The newest documents are retained. If the session exceeds the limit,
+        the oldest documents are evicted until at most
+        MAX_DOCUMENTS_PER_SESSION remain.
+
+        Vector data is deleted before SQLite metadata for each evicted
+        document. If vector deletion fails, that document's SQLite metadata
+        is deliberately preserved so the database does not claim that a
+        document was fully deleted when its vector data still exists.
+
+        Eviction is performed one document at a time and each successful
+        metadata deletion is committed independently. This keeps the
+        persistent state consistent when an eviction fails part-way through.
+        """
+
+        normalized_session_id = _validate_session_id(
+            session_id
+        )
+
+        while True:
+            with _get_db() as conn:
+                row = conn.execute(
+                    """
+                    SELECT document_id
+                    FROM documents
+                    WHERE session_id = ?
+                    ORDER BY created_at ASC, rowid ASC
+                    LIMIT 1
+                    """,
+                    (
+                        normalized_session_id,
+                    ),
+                ).fetchone()
+
+                count_row = conn.execute(
+                    """
+                    SELECT COUNT(*) AS document_count
+                    FROM documents
+                    WHERE session_id = ?
+                    """,
+                    (
+                        normalized_session_id,
+                    ),
+                ).fetchone()
+
+            if (
+                row is None
+                or count_row["document_count"]
+                <= MAX_DOCUMENTS_PER_SESSION
+            ):
+                return
+
+            oldest_document_id = row["document_id"]
+
+            # Delete vector data first. If this raises, SQLite metadata is
+            # intentionally left untouched for retry/recovery.
+            delete_collection(
+                session_id=normalized_session_id,
+                document_id=oldest_document_id,
+            )
+
+            with _get_db() as conn:
+                conn.execute(
+                    """
+                    DELETE FROM documents
+                    WHERE session_id = ?
+                      AND document_id = ?
+                    """,
+                    (
+                        normalized_session_id,
+                        oldest_document_id,
+                    ),
+                )
+
+            logger.info(
+                "[DocumentService] Evicted oldest document: "
+                "session_id=%s document_id=%s",
+                normalized_session_id,
+                oldest_document_id,
+            )
+
     # ========================================================================
     # LIST
     # ========================================================================
@@ -640,7 +749,9 @@ class DocumentService:
         """
         Return all documents belonging to the current session.
 
-        Legacy documents with NULL session_id are intentionally excluded.
+        The service enforces a maximum of MAX_DOCUMENTS_PER_SESSION
+        documents, so this normally returns at most five items. Legacy
+        documents with NULL session_id are intentionally excluded.
         """
 
         normalized_session_id = _validate_session_id(
@@ -648,7 +759,6 @@ class DocumentService:
         )
 
         with _get_db() as conn:
-
             rows = conn.execute(
                 """
                 SELECT
@@ -657,10 +767,12 @@ class DocumentService:
                     chunk_count
                 FROM documents
                 WHERE session_id = ?
-                ORDER BY created_at DESC
+                ORDER BY created_at DESC, rowid DESC
+                LIMIT ?
                 """,
                 (
                     normalized_session_id,
+                    MAX_DOCUMENTS_PER_SESSION,
                 ),
             ).fetchall()
 
@@ -717,7 +829,6 @@ class DocumentService:
             return None
 
         with _get_db() as conn:
-
             row = conn.execute(
                 """
                 SELECT
@@ -791,7 +902,6 @@ class DocumentService:
             return False
 
         with _get_db() as conn:
-
             existing = conn.execute(
                 """
                 SELECT document_id

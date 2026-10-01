@@ -2,24 +2,27 @@
 BodhaQ RAG Service — bridges document retrieval and Gemini embeddings.
 
 Responsibilities:
-    - Verify that the requested document belongs to the current session.
-    - Retrieve relevant chunks from ChromaDB.
-    - Build context for document-grounded generation.
-    - Return source references for retrieved content.
+
+- Verify that the requested document belongs to the current session.
+- Retrieve relevant chunks from ChromaDB.
+- Build context for document-grounded generation.
+- Return source references for retrieved content.
 
 This service does NOT call Gemini directly.
 GeminiService is responsible for generation.
+
 The retriever/embedding layer uses the request-scoped Gemini API key.
 
 SQLite is the authoritative source for document existence and ownership.
 ChromaDB is the vector-storage layer.
 
 Security:
-    - Gemini API keys are request-scoped.
-    - API keys are never persisted.
-    - API keys are never logged.
-    - Documents are isolated by anonymous session.
-    - Cross-session document access is rejected.
+
+- Gemini API keys are request-scoped.
+- API keys are never persisted.
+- API keys are never logged.
+- Documents are isolated by anonymous session.
+- Cross-session document access is rejected.
 """
 
 from __future__ import annotations
@@ -204,7 +207,6 @@ class RAGService:
         retrieval_start = time.perf_counter()
 
         try:
-
             chunks = retrieve_context(
                 session_id=normalized_session_id,
                 document_id=normalized_document_id,
@@ -226,7 +228,6 @@ class RAGService:
             raise
 
         except Exception as exc:
-
             logger.exception(
                 "[RAG] Question retrieval failed | "
                 "session_id=%s | document_id=%s",
@@ -428,7 +429,6 @@ class RAGService:
         retrieval_start = time.perf_counter()
 
         try:
-
             chunks = retrieve_context(
                 session_id=normalized_session_id,
                 document_id=normalized_document_id,
@@ -448,7 +448,6 @@ class RAGService:
             raise
 
         except Exception as exc:
-
             logger.exception(
                 "[RAG] Quiz retrieval failed | "
                 "session_id=%s | document_id=%s",
@@ -524,13 +523,9 @@ class RAGService:
         by one source reference.
         """
 
-        sources: list[
-            SourceReference
-        ] = []
+        sources: list[SourceReference] = []
 
-        seen: set[
-            tuple[str, str]
-        ] = set()
+        seen: set[tuple[str, str]] = set()
 
         if not isinstance(
             chunks,
@@ -575,6 +570,7 @@ class RAGService:
             # Page numbers should normally be integers from the ingestion
             # pipeline. Preserve valid values and avoid exposing arbitrary
             # malformed metadata.
+
             if isinstance(
                 page,
                 bool,
@@ -645,6 +641,7 @@ class RAGService:
         Validate the anonymous session identifier.
 
         The session token itself is validated by the FastAPI dependency.
+
         This additional validation protects the service if it is called
         directly from another backend component.
         """
@@ -663,6 +660,7 @@ class RAGService:
             uuid.UUID(
                 session_id
             )
+
         except (
             ValueError,
             AttributeError,

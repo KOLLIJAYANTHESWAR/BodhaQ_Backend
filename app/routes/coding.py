@@ -2,6 +2,7 @@
 Coding routes.
 
 Endpoints:
+
     POST /api/coding/execute
         Execute code in the isolated execution environment.
 
@@ -22,6 +23,7 @@ Endpoints:
         Submit code against samples, public tests, or all tests.
 
 Important security rules:
+
     - Coding problems are isolated by BodhaQ session.
     - Hidden test inputs/outputs never reach the frontend.
     - Gemini-provided expected outputs are NOT trusted.
@@ -298,7 +300,6 @@ def _compute_reference_outputs(
         test_type,
         test,
     ) in enumerate(tests):
-
         test_input = getattr(
             test,
             "input",
@@ -1287,9 +1288,7 @@ async def submit_code(
             )
 
         for test_type, test_list in all_tests:
-
             for test in test_list:
-
                 is_hidden = (
                     test_type == "hidden"
                 )
@@ -1335,7 +1334,6 @@ async def submit_code(
                 # ------------------------------------------------------------
 
                 if execution_result.status != "success":
-
                     status_map = {
                         "compilation_error": "Compilation Error",
                         "runtime_error": "Runtime Error",
@@ -1400,7 +1398,6 @@ async def submit_code(
                 )
 
                 if actual != expected:
-
                     if is_hidden:
                         return CodeSubmitResponse(
                             status="Wrong Answer",
@@ -1498,4 +1495,3 @@ async def submit_code(
                 "code": "CODE_SUBMISSION_FAILED",
             },
         )
-        

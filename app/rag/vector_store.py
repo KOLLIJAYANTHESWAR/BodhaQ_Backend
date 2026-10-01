@@ -48,6 +48,7 @@ _MAX_CHUNK_ID_LENGTH = 512
 
 _MAX_TOP_K = 20
 
+
 _client: chromadb.ClientAPI | None = None
 
 _client_lock = threading.Lock()
@@ -72,11 +73,8 @@ def get_chroma_client() -> chromadb.ClientAPI:
         return _client
 
     with _client_lock:
-
         if _client is None:
-
             try:
-
                 CHROMA_DIR.mkdir(
                     parents=True,
                     exist_ok=True,
@@ -90,7 +88,6 @@ def get_chroma_client() -> chromadb.ClientAPI:
                 )
 
             except Exception as exc:
-
                 logger.exception(
                     "[Vector Store] Failed to initialize ChromaDB."
                 )
@@ -138,17 +135,14 @@ def _normalize_session_id(
         )
 
     try:
-
         parsed = uuid.UUID(
             normalized
         )
-
     except (
         ValueError,
         AttributeError,
         TypeError,
     ) as exc:
-
         raise ValueError(
             "Invalid session_id."
         ) from exc
@@ -186,17 +180,14 @@ def _normalize_document_id(
         )
 
     try:
-
         parsed = uuid.UUID(
             normalized
         )
-
     except (
         ValueError,
         AttributeError,
         TypeError,
     ) as exc:
-
         raise ValueError(
             "Invalid document_id."
         ) from exc
@@ -220,7 +211,6 @@ def _validate_embedding(
         embedding,
         list,
     ) or not embedding:
-
         raise ValueError(
             f"{field_name} cannot be empty."
         )
@@ -230,7 +220,6 @@ def _validate_embedding(
     for index, value in enumerate(
         embedding
     ):
-
         if (
             isinstance(
                 value,
@@ -241,7 +230,6 @@ def _validate_embedding(
                 (int, float),
             )
         ):
-
             raise ValueError(
                 f"{field_name}[{index}] must be numeric."
             )
@@ -253,7 +241,6 @@ def _validate_embedding(
         if not math.isfinite(
             numeric_value
         ):
-
             raise ValueError(
                 f"{field_name}[{index}] must be finite."
             )
@@ -279,7 +266,6 @@ def _validate_metadata(
         metadata,
         dict,
     ):
-
         raise ValueError(
             "Chunk metadata must be an object."
         )
@@ -287,12 +273,10 @@ def _validate_metadata(
     validated: dict[str, Any] = {}
 
     for key, value in metadata.items():
-
         if not isinstance(
             key,
             str,
         ):
-
             raise ValueError(
                 "Chunk metadata keys must be strings."
             )
@@ -300,7 +284,6 @@ def _validate_metadata(
         normalized_key = key.strip()
 
         if not normalized_key:
-
             raise ValueError(
                 "Chunk metadata keys cannot be empty."
             )
@@ -314,7 +297,6 @@ def _validate_metadata(
             value,
             bool,
         ):
-
             validated[normalized_key] = value
             continue
 
@@ -322,7 +304,6 @@ def _validate_metadata(
             value,
             str,
         ):
-
             validated[normalized_key] = value
             continue
 
@@ -336,7 +317,6 @@ def _validate_metadata(
                 bool,
             )
         ):
-
             validated[normalized_key] = value
             continue
 
@@ -344,11 +324,9 @@ def _validate_metadata(
             value,
             float,
         ):
-
             if not math.isfinite(
                 value
             ):
-
                 raise ValueError(
                     f"Metadata value for '{normalized_key}' "
                     "must be finite."
@@ -383,7 +361,6 @@ def _validate_top_k(
         )
         or top_k < 1
     ):
-
         raise ValueError(
             "top_k must be at least 1."
         )
@@ -489,7 +466,6 @@ def get_or_create_collection(
     client = get_chroma_client()
 
     try:
-
         return client.get_or_create_collection(
             name=collection_name,
             metadata={
@@ -498,7 +474,6 @@ def get_or_create_collection(
         )
 
     except Exception as exc:
-
         logger.exception(
             "[Vector Store] Failed to create/access collection."
         )
@@ -530,13 +505,11 @@ def get_existing_collection(
     client = get_chroma_client()
 
     try:
-
         return client.get_collection(
             name=collection_name,
         )
 
     except Exception as exc:
-
         if _is_collection_not_found_error(
             exc
         ):
@@ -600,7 +573,6 @@ def upsert_chunks(
         )
         or not chunks
     ):
-
         raise ValueError(
             "Cannot upsert chunks because the chunk list is empty."
         )
@@ -609,7 +581,6 @@ def upsert_chunks(
         embeddings,
         list,
     ):
-
         raise ValueError(
             "Embeddings must be provided as a list."
         )
@@ -617,7 +588,6 @@ def upsert_chunks(
     if len(chunks) != len(
         embeddings
     ):
-
         raise ValueError(
             "The number of chunks must match "
             "the number of embeddings."
@@ -634,12 +604,10 @@ def upsert_chunks(
     for index, chunk in enumerate(
         chunks
     ):
-
         if not isinstance(
             chunk,
             dict,
         ):
-
             raise ValueError(
                 f"Chunk at index {index} must be an object."
             )
@@ -660,7 +628,6 @@ def upsert_chunks(
             chunk_id,
             str,
         ):
-
             raise ValueError(
                 f"Chunk at index {index} has an invalid chunk_id."
             )
@@ -668,7 +635,6 @@ def upsert_chunks(
         normalized_chunk_id = chunk_id.strip()
 
         if not normalized_chunk_id:
-
             raise ValueError(
                 f"Chunk at index {index} has an invalid chunk_id."
             )
@@ -676,7 +642,6 @@ def upsert_chunks(
         if len(
             normalized_chunk_id
         ) > _MAX_CHUNK_ID_LENGTH:
-
             raise ValueError(
                 f"Chunk at index {index} has an excessively long "
                 "chunk_id."
@@ -686,7 +651,6 @@ def upsert_chunks(
             text,
             str,
         ):
-
             raise ValueError(
                 f"Chunk at index {index} has invalid text."
             )
@@ -694,7 +658,6 @@ def upsert_chunks(
         normalized_text = text.strip()
 
         if not normalized_text:
-
             raise ValueError(
                 f"Chunk at index {index} has empty text."
             )
@@ -736,7 +699,6 @@ def upsert_chunks(
     ) != len(
         set(ids)
     ):
-
         raise ValueError(
             "Chunk IDs must be unique within an upsert operation."
         )
@@ -752,14 +714,12 @@ def upsert_chunks(
     for index, embedding in enumerate(
         embeddings
     ):
-
         validated_embedding = _validate_embedding(
             embedding,
             f"Embedding at index {index}",
         )
 
         if expected_dimension is None:
-
             expected_dimension = len(
                 validated_embedding
             )
@@ -767,7 +727,6 @@ def upsert_chunks(
         elif len(
             validated_embedding
         ) != expected_dimension:
-
             raise ValueError(
                 "All embeddings must have the same vector dimension."
             )
@@ -777,7 +736,6 @@ def upsert_chunks(
         )
 
     if expected_dimension is None:
-
         raise ValueError(
             "No valid embeddings were provided."
         )
@@ -792,7 +750,6 @@ def upsert_chunks(
     )
 
     try:
-
         collection.upsert(
             ids=ids,
             documents=documents,
@@ -801,7 +758,6 @@ def upsert_chunks(
         )
 
     except Exception as exc:
-
         logger.exception(
             "[Vector Store] Failed to upsert document chunks."
         )
@@ -850,7 +806,6 @@ def query_collection(
     )
 
     if collection is None:
-
         raise ValueError(
             f"Document '{normalized_document_id}' was not found."
         )
@@ -860,11 +815,9 @@ def query_collection(
     # ------------------------------------------------------------------------
 
     try:
-
         chunk_count = collection.count()
 
     except Exception as exc:
-
         logger.exception(
             "[Vector Store] Failed to count document chunks."
         )
@@ -874,7 +827,6 @@ def query_collection(
         ) from exc
 
     if chunk_count <= 0:
-
         raise ValueError(
             f"Document '{normalized_document_id}' "
             "contains no indexed content."
@@ -890,7 +842,6 @@ def query_collection(
     # ------------------------------------------------------------------------
 
     try:
-
         results = collection.query(
             query_embeddings=[
                 validated_embedding
@@ -904,7 +855,6 @@ def query_collection(
         )
 
     except Exception as exc:
-
         logger.exception(
             "[Vector Store] ChromaDB query failed."
         )
@@ -921,7 +871,6 @@ def query_collection(
         results,
         dict,
     ):
-
         raise RuntimeError(
             "Vector store returned an invalid retrieval response."
         )
@@ -939,14 +888,12 @@ def query_collection(
     )
 
     if not documents:
-
         return []
 
     if not isinstance(
         documents,
         list,
     ):
-
         raise RuntimeError(
             "Vector store returned invalid document results."
         )
@@ -979,21 +926,18 @@ def query_collection(
         documents,
         list,
     ):
-
         return []
 
     if not isinstance(
         metadatas,
         list,
     ):
-
         metadatas = []
 
     if not isinstance(
         distances,
         list,
     ):
-
         distances = []
 
     # ------------------------------------------------------------------------
@@ -1009,30 +953,25 @@ def query_collection(
     for index, doc in enumerate(
         documents
     ):
-
         if not isinstance(
             doc,
             str,
         ):
-
             continue
 
         normalized_doc = doc.strip()
 
         if not normalized_doc:
-
             continue
 
         if index >= len(
             metadatas
         ):
-
             continue
 
         if index >= len(
             distances
         ):
-
             continue
 
         metadata = metadatas[
@@ -1047,7 +986,6 @@ def query_collection(
             metadata,
             dict,
         ):
-
             continue
 
         if (
@@ -1060,7 +998,6 @@ def query_collection(
                 (int, float),
             )
         ):
-
             continue
 
         normalized_distance = float(
@@ -1070,11 +1007,9 @@ def query_collection(
         if not math.isfinite(
             normalized_distance
         ):
-
             continue
 
         if normalized_distance < 0:
-
             continue
 
         # --------------------------------------------------------------------
@@ -1103,7 +1038,6 @@ def query_collection(
             or metadata_document_id
             != normalized_document_id
         ):
-
             logger.warning(
                 "[Vector Store] Ownership metadata mismatch "
                 "during session/document retrieval."
@@ -1154,17 +1088,14 @@ def delete_collection(
     client = get_chroma_client()
 
     try:
-
         client.delete_collection(
             name=collection_name,
         )
 
     except Exception as exc:
-
         if _is_collection_not_found_error(
             exc
         ):
-
             return
 
         logger.exception(

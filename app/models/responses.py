@@ -4,10 +4,12 @@ Response models for BodhaQ API.
 These models define the data returned to the frontend.
 
 Important security rule:
+
     Correct quiz answers are NEVER included in quiz-generation
     responses. They are returned only as part of quiz evaluation.
 
 Coding security rule:
+
     Hidden coding tests are NEVER returned to the frontend.
     Only hidden test counts are exposed.
 """
@@ -241,6 +243,7 @@ class QuizQuestionPublic(BaseModel):
     Question returned to the frontend.
 
     IMPORTANT:
+
         correct_answer is intentionally NOT included.
     """
 
@@ -291,6 +294,7 @@ class QuizGenerateResponse(BaseModel):
     Quiz returned after generation.
 
     Supported quiz sources:
+
         - topic: Topic-based assessment.
         - document: Document-grounded assessment.
         - resume_item: Resume interview assessment
@@ -349,9 +353,19 @@ class MistakeDetail(BaseModel):
         max_length=2000,
     )
 
+    correct_answer_text: str | None = Field(
+        default=None,
+        max_length=2000,
+    )
+
     user_answer: str = Field(
         ...,
         min_length=1,
+        max_length=2000,
+    )
+
+    user_answer_text: str | None = Field(
+        default=None,
         max_length=2000,
     )
 
@@ -415,6 +429,7 @@ class WeakTopicItem(BaseModel):
     Weak-topic information.
 
     Status values used by the frontend:
+
         Needs Practice
         Improving
         Learned
@@ -724,6 +739,7 @@ class CodeExecutionResponse(BaseModel):
     Result of executing code.
 
     Possible status values include:
+
         success
         compilation_error
         runtime_error
@@ -814,9 +830,11 @@ class CodingProblemGenerateResponse(BaseModel):
     Generated coding workspace.
 
     IMPORTANT:
+
         Hidden test inputs and expected outputs are NOT returned.
 
         Only:
+
             hidden_test_count
 
         is exposed.
@@ -983,6 +1001,7 @@ class CodeSubmitResponse(BaseModel):
     Hidden-test information is intentionally restricted.
 
     For hidden failures:
+
         - hidden_test_failed is true
         - failed_test_type is "hidden"
 
@@ -1064,4 +1083,3 @@ class CodeSubmitResponse(BaseModel):
 
     # Hidden test failure indicator.
     hidden_test_failed: bool = False
-    

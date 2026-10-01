@@ -16,7 +16,6 @@ from __future__ import annotations
 import logging
 import math
 from pathlib import Path
-from typing import Any
 
 from docx import Document
 from docx.document import Document as DocumentType
@@ -250,6 +249,7 @@ def load_docx(
             If the path is invalid, the file cannot be opened,
             or no extractable text is found.
     """
+
     # ------------------------------------------------------------------------
     # VALIDATE CONFIGURATION
     # ------------------------------------------------------------------------

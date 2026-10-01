@@ -992,12 +992,40 @@ class QuizService:
             #
             # correct_answer is stored ONLY here.
             #
-            # It is never included in QuizGenerateResponse.
+            # The validated option text is also stored ONLY here so that
+            # EvaluationService can deterministically translate answer
+            # letters such as "B" into their corresponding option text.
+            #
+            # This remains safe because private_answers is contained inside
+            # the session-isolated server-side quiz store and is never used
+            # to construct QuizGenerateResponse.
+            #
+            # Example private record:
+            #
+            # {
+            #     "correct_answer": "C",
+            #     "options": [
+            #         {"letter": "A", "text": "..."},
+            #         {"letter": "B", "text": "..."},
+            #         {"letter": "C", "text": "..."},
+            #         {"letter": "D", "text": "..."},
+            #     ],
+            #     "explanation": "...",
+            #     "topic": "...",
+            #     "question": "...",
+            # }
 
             private_answers[
                 str(question_id)
             ] = {
                 "correct_answer": correct_answer,
+                "options": [
+                    {
+                        "letter": option.letter,
+                        "text": option.text,
+                    }
+                    for option in options
+                ],
                 "explanation": explanation,
                 "topic": topic,
                 "question": question_text,

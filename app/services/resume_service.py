@@ -1,25 +1,16 @@
 """
-ResumeService — manages resume ingestion, parsing, and progress tracking.
+BodhaQ Resume Service.
 
-Responsibilities:
-    - Extract text from resumes.
-    - Use GeminiService to structure resume information.
-    - Store resume versions and extracted preparation items.
-    - Track persistent interview-preparation progress.
-    - Generate resume-specific quizzes.
-    - Reuse the existing QuizService for secure quiz generation.
+Manages resume ingestion, parsing, persistence, progress tracking,
+resume-specific quiz generation, and completion state.
 
-Gemini authentication:
-    - Gemini API keys are request-scoped.
-    - The API key is supplied by the route for the current request only.
-    - The key is never persisted or logged by this service.
-
-Persistence:
-    - Resume data and progress are stored in SQLite.
-    - Each uploaded resume gets its own resume_id.
-    - Each resume belongs to exactly one anonymous BodhaQ session.
-    - Resume items are permanently associated with that resume version.
-    - Legacy resumes without a session_id remain inaccessible to new sessions.
+Architecture:
+- Resume data is persisted in SQLite.
+- Each resume belongs to exactly one anonymous BodhaQ session.
+- A session has at most one active resume.
+- Uploading a new resume replaces older resume versions for that session.
+- Explicit deletion removes the session-owned resume and all resume items.
+- Gemini API keys are request-scoped and are never persisted or logged.
 """
 
 from __future__ import annotations
@@ -42,13 +33,11 @@ SUPPORTED_EXTENSIONS = {
     ".docx",
 }
 
-
 VALID_ITEM_TYPES = {
     "skill",
     "project",
     "certification",
 }
-
 
 MIN_QUESTIONS = 1
 MAX_QUESTIONS = 20
@@ -74,21 +63,15 @@ def _validate_session_id(session_id: str) -> str:
     FastAPI dependencies.
     """
 
-    normalized = str(
-        session_id or ""
-    ).strip()
+    normalized = str(session_id or "").strip()
 
     if not normalized:
-        raise ValueError(
-            "Session ID cannot be empty."
-        )
+        raise ValueError("Session ID cannot be empty.")
 
     try:
         uuid.UUID(normalized)
     except ValueError as exc:
-        raise ValueError(
-            "Invalid session ID."
-        ) from exc
+        raise ValueError("Invalid session ID.") from exc
 
     return normalized
 
@@ -98,21 +81,15 @@ def _validate_resume_id(resume_id: str) -> str:
     Validate a resume UUID.
     """
 
-    normalized = str(
-        resume_id or ""
-    ).strip()
+    normalized = str(resume_id or "").strip()
 
     if not normalized:
-        raise ValueError(
-            "Resume ID cannot be empty."
-        )
+        raise ValueError("Resume ID cannot be empty.")
 
     try:
         uuid.UUID(normalized)
     except ValueError as exc:
-        raise ValueError(
-            "Invalid resume ID."
-        ) from exc
+        raise ValueError("Invalid resume ID.") from exc
 
     return normalized
 
@@ -122,21 +99,15 @@ def _validate_item_id(item_id: str) -> str:
     Validate a resume-item UUID.
     """
 
-    normalized = str(
-        item_id or ""
-    ).strip()
+    normalized = str(item_id or "").strip()
 
     if not normalized:
-        raise ValueError(
-            "Resume item ID cannot be empty."
-        )
+        raise ValueError("Resume item ID cannot be empty.")
 
     try:
         uuid.UUID(normalized)
     except ValueError as exc:
-        raise ValueError(
-            "Invalid resume item ID."
-        ) from exc
+        raise ValueError("Invalid resume item ID.") from exc
 
     return normalized
 
@@ -148,14 +119,10 @@ def _validate_api_key(api_key: str) -> str:
     The key is intentionally never logged, persisted, or returned.
     """
 
-    normalized = str(
-        api_key or ""
-    ).strip()
+    normalized = str(api_key or "").strip()
 
     if not normalized:
-        raise ValueError(
-            "Gemini API key cannot be empty."
-        )
+        raise ValueError("Gemini API key cannot be empty.")
 
     return normalized
 
@@ -169,32 +136,20 @@ def _validate_upload_path(file_path: str) -> Path:
     accidentally reused as an arbitrary local-file reader.
     """
 
-    normalized_path = str(
-        file_path or ""
-    ).strip()
+    normalized_path = str(file_path or "").strip()
 
     if not normalized_path:
-        raise ValueError(
-            "Resume file path cannot be empty."
-        )
+        raise ValueError("Resume file path cannot be empty.")
 
-    source_path = Path(
-        normalized_path
-    ).resolve()
+    source_path = Path(normalized_path).resolve()
 
     if not source_path.is_file():
-        raise ValueError(
-            "Resume file could not be found."
-        )
+        raise ValueError("Resume file could not be found.")
 
-    uploads_root = Path(
-        UPLOADS_DIR
-    ).resolve()
+    uploads_root = Path(UPLOADS_DIR).resolve()
 
     try:
-        source_path.relative_to(
-            uploads_root
-        )
+        source_path.relative_to(uploads_root)
     except ValueError as exc:
         raise ValueError(
             "Resume file is outside the allowed upload directory."
@@ -222,7 +177,7 @@ def _get_db() -> sqlite3.Connection:
     )
 
     conn = sqlite3.connect(
-        str(DB_PATH)
+        str(DB_PATH),
     )
 
     conn.row_factory = sqlite3.Row
@@ -257,6 +212,7 @@ def _get_db() -> sqlite3.Connection:
     #
     # Existing rows remain NULL and therefore cannot be returned to any new
     # anonymous session. This prevents accidental cross-session exposure.
+
     columns = {
         str(row["name"])
         for row in conn.execute(
@@ -347,6 +303,13 @@ class ResumeService:
     - storing resume data and interview items
     - tracking interview preparation progress
     - generating resume-specific quizzes
+
+    Resume lifecycle invariant:
+
+    - A session has at most one active resume.
+    - A successful new upload replaces all previous resume versions
+      belonging to that session.
+    - Explicit deletion removes the session-owned resume.
     """
 
     # ========================================================================
@@ -430,7 +393,6 @@ class ResumeService:
         # --------------------------------------------------------------------
 
         try:
-
             if ext == ".pdf":
                 pages = load_pdf(
                     str(source_path)
@@ -506,7 +468,6 @@ class ResumeService:
         # --------------------------------------------------------------------
 
         try:
-
             with _get_db() as conn:
 
                 conn.execute(
@@ -664,9 +625,37 @@ class ResumeService:
                         ),
                     )
 
+                # ------------------------------------------------------------
+                # REPLACE PREVIOUS RESUME VERSIONS
+                # ------------------------------------------------------------
+
+                # The new resume and all of its preparation items have now
+                # been stored successfully in this transaction.
+                #
+                # Only after successful insertion do we remove older resumes
+                # belonging to this session. resume_items uses ON DELETE
+                # CASCADE, so their associated preparation items are removed
+                # automatically.
+                #
+                # This gives the session exactly one active resume while
+                # preserving the old resume if the new upload fails before
+                # this point.
+
+                conn.execute(
+                    """
+                    DELETE FROM resumes
+                    WHERE session_id = ?
+                      AND id != ?
+                    """,
+                    (
+                        session_id,
+                        resume_id,
+                    ),
+                )
+
         except sqlite3.Error as exc:
             raise RuntimeError(
-                "Failed to store the extracted resume data."
+                "Failed to store or replace the session resume."
             ) from exc
 
         return resume_id
@@ -776,7 +765,6 @@ class ResumeService:
                 if row["technologies"]:
 
                     try:
-
                         decoded = json.loads(
                             row["technologies"]
                         )
@@ -797,9 +785,7 @@ class ResumeService:
                     ):
                         technologies = []
 
-                item["technologies"] = (
-                    technologies
-                )
+                item["technologies"] = technologies
 
                 projects.append(
                     item
@@ -844,6 +830,54 @@ class ResumeService:
             "items_completed": completed_count,
             "total_items": total_items,
         }
+
+    # ========================================================================
+    # DELETE ACTIVE RESUME
+    # ========================================================================
+
+    def delete_active_resume(
+        self,
+        session_id: str,
+    ) -> bool:
+        """
+        Delete the active resume belonging to the supplied session.
+
+        Because the resume lifecycle guarantees at most one active resume
+        per session, deleting all session-owned resume rows removes the
+        active resume. The resume_items rows are removed automatically by
+        the ON DELETE CASCADE foreign key.
+
+        The operation is session-isolated and does not require a Gemini API
+        key.
+
+        Returns:
+            True if a resume existed and was deleted.
+            False if the session had no resume.
+        """
+
+        session_id = _validate_session_id(
+            session_id
+        )
+
+        try:
+            with _get_db() as conn:
+
+                result = conn.execute(
+                    """
+                    DELETE FROM resumes
+                    WHERE session_id = ?
+                    """,
+                    (
+                        session_id,
+                    ),
+                )
+
+                return result.rowcount > 0
+
+        except sqlite3.Error as exc:
+            raise RuntimeError(
+                "Failed to delete the session resume."
+            ) from exc
 
     # ========================================================================
     # RESUME ITEM QUIZ GENERATION
@@ -985,7 +1019,6 @@ class ResumeService:
             if row["technologies"]:
 
                 try:
-
                     decoded = json.loads(
                         row["technologies"]
                     )
@@ -1210,5 +1243,6 @@ class ResumeService:
 # ============================================================================
 # MODULE-LEVEL SINGLETON
 # ============================================================================
+
 
 resume_service = ResumeService()

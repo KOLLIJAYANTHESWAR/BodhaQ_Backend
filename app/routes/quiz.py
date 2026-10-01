@@ -2,25 +2,31 @@
 Quiz routes.
 
 POST /api/quiz/generate
+
     Generate a quiz from a topic or document.
 
 POST /api/quiz/submit
+
     Submit answers and receive scored evaluation.
 
 POST /api/quiz/practice
+
     Generate targeted practice for a weak topic.
 
     Supports:
+
         - Topic-only practice
         - Document-grounded practice using RAG
 
 GET /api/quiz/gaps
+
     Analyse submitted quizzes and return aggregated learning gaps.
 
 Correct answers are always stored server-side and are never returned
 to the frontend.
 
 Security:
+
     - A valid BodhaQ anonymous session is required.
     - Gemini API keys are supplied per request for AI generation.
     - API keys are never persisted or logged.
@@ -236,9 +242,11 @@ def generate_quiz(
     Generate a multiple-choice quiz.
 
     source_type='topic':
+
         source_id is the topic text.
 
     source_type='document':
+
         source_id is the document_id returned from
         /api/documents/upload.
 
@@ -268,12 +276,14 @@ def generate_quiz(
         ValueError,
         RuntimeError,
     ) as exc:
+
         _raise_generation_error(
             exc,
             feature="Generate",
         )
 
     except Exception as exc:
+
         _raise_generation_error(
             exc,
             feature="Generate",
@@ -304,6 +314,7 @@ def submit_quiz(
     Only the session that generated the quiz can submit it.
 
     Returns:
+
         - score
         - percentage
         - mistake breakdown
@@ -318,6 +329,7 @@ def submit_quiz(
         )
 
     except ValueError as exc:
+
         logger.warning(
             "[Quiz Submit] Invalid submission: %s",
             type(exc).__name__,
@@ -346,6 +358,7 @@ def submit_quiz(
         ) from exc
 
     except RuntimeError as exc:
+
         logger.exception(
             "[Quiz Submit] Evaluation service failure."
         )
@@ -362,6 +375,7 @@ def submit_quiz(
         ) from exc
 
     except Exception as exc:
+
         logger.exception(
             "[Quiz Submit] Unexpected failure."
         )
@@ -408,6 +422,7 @@ def get_aggregated_gaps(
         )
 
     except ValueError as exc:
+
         logger.warning(
             "[Quiz Gaps] Invalid gap request: %s",
             type(exc).__name__,
@@ -422,6 +437,7 @@ def get_aggregated_gaps(
         ) from exc
 
     except Exception:
+
         logger.exception(
             "[Quiz Gaps] Failed."
         )
@@ -462,12 +478,14 @@ def generate_practice(
     Two modes are supported.
 
     Topic-only practice:
+
         {
             "topic": "HashMap ordering",
             "document_id": null
         }
 
     Document-grounded practice:
+
         {
             "topic": "Key Uniqueness",
             "document_id": "original-document-id"
@@ -504,14 +522,15 @@ def generate_practice(
         ValueError,
         RuntimeError,
     ) as exc:
+
         _raise_generation_error(
             exc,
             feature="Practice",
         )
 
     except Exception as exc:
+
         _raise_generation_error(
             exc,
             feature="Practice",
         )
-        

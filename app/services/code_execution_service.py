@@ -626,6 +626,7 @@ class CodeExecutionService:
                         stdout_closed = True
                     else:
                         stderr_closed = True
+
                 elif stream_name == "stdout":
                     stdout_size += len(data)
 
@@ -652,6 +653,8 @@ class CodeExecutionService:
                         )
                         break
 
+                    stderr_chunks.append(data)
+
                 if (
                     process.poll() is not None
                     and stdout_closed
@@ -659,9 +662,9 @@ class CodeExecutionService:
                 ):
                     break
 
-            # --------------------------------------------------------------
+            # ----------------------------------------------------------------
             # Ensure the Docker CLI process is fully reaped.
-            # --------------------------------------------------------------
+            # ----------------------------------------------------------------
 
             if process.poll() is None:
                 try:
@@ -674,9 +677,9 @@ class CodeExecutionService:
                         container_name,
                     )
 
-            # --------------------------------------------------------------
+            # ----------------------------------------------------------------
             # Give reader threads a short opportunity to finish.
-            # --------------------------------------------------------------
+            # ----------------------------------------------------------------
 
             stdout_thread.join(
                 timeout=READER_JOIN_TIMEOUT_SECONDS
@@ -686,17 +689,18 @@ class CodeExecutionService:
                 timeout=READER_JOIN_TIMEOUT_SECONDS
             )
 
-            # --------------------------------------------------------------
+            # ----------------------------------------------------------------
             # Drain already-buffered queue data without blocking.
             #
             # The data has already been bounded before being stored.
-            # --------------------------------------------------------------
+            # ----------------------------------------------------------------
 
             while True:
                 try:
                     stream_name, data = (
                         output_queue.get_nowait()
                     )
+
                 except queue.Empty:
                     break
 
@@ -1081,7 +1085,6 @@ class CodeExecutionService:
         Execute Java or Python code inside an isolated Docker container.
 
         This method is used by:
-
         - Coding IDE "Run"
         - Coding problem validation
         - Coding submission

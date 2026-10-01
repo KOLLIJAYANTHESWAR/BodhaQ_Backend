@@ -132,3 +132,14 @@ SessionResponse
 # Local development command notes
 runing_cmd.txt
 test_result_*.txt
+.env
+.env.*
+node_modules/
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.db
+chroma/
+uploads/
+dist/

@@ -2,6 +2,7 @@
 Document routes.
 
 Endpoints:
+
     POST /api/documents/upload
         Upload and ingest a PDF, PPTX, or DOCX.
 
@@ -12,6 +13,7 @@ Endpoints:
         Delete a session-owned document and its vector data.
 
 Security:
+
     - Every operation requires a valid BodhaQ anonymous session.
     - Uploaded files are streamed to disk.
     - Files are limited to 50 MB.
@@ -296,7 +298,6 @@ async def upload_document(
     total_size = 0
 
     try:
-
         # --------------------------------------------------------------------
         # TEMPORARY FILE
         # --------------------------------------------------------------------

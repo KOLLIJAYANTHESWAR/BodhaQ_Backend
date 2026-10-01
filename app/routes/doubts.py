@@ -4,6 +4,7 @@ Doubts routes.
 POST /api/doubts/ask
 
 Supports:
+
     - Topic mode:
         Answer a question using Gemini without document context.
 
@@ -13,6 +14,7 @@ Supports:
         retrieved context.
 
 Security:
+
     - A valid BodhaQ anonymous session is required.
     - Gemini credentials are supplied per request by the user.
     - API keys are never persisted by this route.
@@ -246,9 +248,11 @@ def ask_doubt(
     Answer a user's question.
 
     If document_id is provided:
+
         Use session-isolated RAG to retrieve relevant document chunks.
 
     If document_id is not provided:
+
         Answer using Gemini's general knowledge.
 
     The Gemini API key is supplied by the user for this request only.
@@ -393,6 +397,7 @@ def _ask_document_doubt(
         )
 
     except ValueError as exc:
+
         logger.warning(
             "[Doubts] Invalid document request: %s",
             type(exc).__name__,
@@ -407,6 +412,7 @@ def _ask_document_doubt(
         ) from exc
 
     except RuntimeError as exc:
+
         logger.exception(
             "[Doubts] RAG retrieval failed."
         )
@@ -423,6 +429,7 @@ def _ask_document_doubt(
         ) from exc
 
     except Exception as exc:
+
         logger.exception(
             "[Doubts] Unexpected RAG failure."
         )
@@ -462,12 +469,14 @@ def _ask_document_doubt(
         ValueError,
         RuntimeError,
     ) as exc:
+
         _handle_gemini_error(
             exc,
             feature="document",
         )
 
     except Exception as exc:
+
         _handle_gemini_error(
             exc,
             feature="document",
@@ -528,12 +537,14 @@ def _ask_topic_doubt(
         ValueError,
         RuntimeError,
     ) as exc:
+
         _handle_gemini_error(
             exc,
             feature="topic",
         )
 
     except Exception as exc:
+
         _handle_gemini_error(
             exc,
             feature="topic",
@@ -560,3 +571,4 @@ def _ask_topic_doubt(
         answer=answer,
         sources=[],
     )
+    

@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from fastapi import Header, HTTPException
 
-from app.services.session_service import SessionError, validate_session_token
+from app.services.session_service import (
+    SessionError,
+    validate_session_token,
+)
 
 
 SESSION_HEADER = "X-BodhaQ-Session"
@@ -15,7 +18,9 @@ def get_session_id(
     ),
 ) -> str:
     try:
-        return validate_session_token(x_bodhaq_session or "")
+        return validate_session_token(
+            x_bodhaq_session or ""
+        )
     except SessionError as exc:
         raise HTTPException(
             status_code=401,

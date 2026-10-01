@@ -1501,10 +1501,21 @@ Hidden tests remain backend-only.
 
         python_code = problem.starter_code_python
 
-        if 'if __name__ == "__main__":' not in python_code:
+        python_main_guard_pattern = re.compile(
+            r"""
+            ^\s*
+            if\s+
+            __name__\s*==\s*
+            (?:"__main__"|'__main__')
+            \s*:
+            """,
+            re.MULTILINE | re.VERBOSE,
+        )
+
+        if not python_main_guard_pattern.search(python_code):
             raise GeminiInvalidResponseError(
-                'Generated Python starter code must contain '
-                'if __name__ == "__main__":.'
+                'Generated Python starter code must contain a valid '
+                'if __name__ == "__main__": entry point.'
             )
 
         # --------------------------------------------------------------------
@@ -1841,8 +1852,9 @@ Hidden tests remain backend-only.
                     model=GEMINI_MODEL,
                 )
 
-                response = chat.send_message(
-                    message=prompt,
+                response = client.models.generate_content(
+                    model=GEMINI_MODEL,
+                    contents=prompt,
                     config=types.GenerateContentConfig(
                         response_mime_type="application/json",
                         response_schema=schema,

@@ -2,10 +2,12 @@
 Learning routes.
 
 POST /api/learning/topic
-    Generate structured learning content for a topic and attach
-    curated external learning resources and YouTube learning videos.
+
+Generate structured learning content for a topic and attach
+curated external learning resources and YouTube learning videos.
 
 Security:
+
     - Gemini API key is supplied per request.
     - Tavily API key is supplied per request.
     - API keys are never persisted or logged.
@@ -187,6 +189,7 @@ def learn_topic(
         )
 
     except GeminiAuthenticationError as exc:
+
         logger.warning(
             "[Learning] Gemini authentication failed."
         )
@@ -203,6 +206,7 @@ def learn_topic(
         ) from exc
 
     except GeminiQuotaError as exc:
+
         logger.warning(
             "[Learning] Gemini quota/rate limit reached."
         )
@@ -219,6 +223,7 @@ def learn_topic(
         ) from exc
 
     except ValueError as exc:
+
         logger.warning(
             "[Learning] Invalid Gemini request: %s",
             type(exc).__name__,
@@ -233,6 +238,7 @@ def learn_topic(
         ) from exc
 
     except RuntimeError as exc:
+
         logger.exception(
             "[Learning] Gemini generation failed."
         )
@@ -249,6 +255,7 @@ def learn_topic(
         ) from exc
 
     except Exception as exc:
+
         logger.exception(
             "[Learning] Unexpected Gemini failure."
         )
@@ -285,6 +292,7 @@ def learn_topic(
         )
 
     except ResourceSearchAuthenticationError as exc:
+
         logger.warning(
             "[Learning] Tavily authentication failed."
         )
@@ -301,6 +309,7 @@ def learn_topic(
         ) from exc
 
     except ResourceSearchQuotaError as exc:
+
         logger.warning(
             "[Learning] Tavily quota/rate limit reached."
         )
@@ -317,6 +326,7 @@ def learn_topic(
         ) from exc
 
     except Exception:
+
         logger.exception(
             "[Learning] Resource search failed. "
             "Returning lesson without external resources."
@@ -336,6 +346,7 @@ def learn_topic(
         )
 
     except ResourceSearchAuthenticationError as exc:
+
         logger.warning(
             "[Learning] Tavily authentication failed during video search."
         )
@@ -352,6 +363,7 @@ def learn_topic(
         ) from exc
 
     except ResourceSearchQuotaError as exc:
+
         logger.warning(
             "[Learning] Tavily quota/rate limit reached "
             "during video search."
@@ -369,6 +381,7 @@ def learn_topic(
         ) from exc
 
     except Exception:
+
         logger.exception(
             "[Learning] Video search failed. "
             "Returning lesson without external videos."

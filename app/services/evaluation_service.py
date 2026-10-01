@@ -4,6 +4,7 @@ BodhaQ Evaluation Service.
 Deterministic quiz scoring.
 
 Scoring is entirely algorithmic.
+
 The LLM is NOT involved in:
 - calculating scores
 - identifying mistakes
@@ -30,6 +31,7 @@ import threading
 import time
 import uuid
 from typing import Any
+
 from app.models.responses import (
     MistakeDetail,
     QuizEvaluationResponse,
@@ -77,12 +79,12 @@ class EvaluationService:
         # --------------------------------------------------------------------
         # SESSION-ISOLATED EVALUATIONS
         # --------------------------------------------------------------------
-        #
+
         # session_id -> quiz_id -> most recent evaluation
-        #
+
         # This remains in-memory for the current MVP.
         # A server restart intentionally clears evaluation history.
-        #
+
         self._evaluations: dict[
             str,
             dict[str, QuizEvaluationResponse],
@@ -172,6 +174,261 @@ class EvaluationService:
             session_id,
             {},
         )
+
+    # ========================================================================
+    # OPTION HELPERS
+    # ========================================================================
+
+    @staticmethod
+    def _normalize_option_text(
+        value: Any,
+    ) -> str:
+        """
+        Convert a stored option value into displayable text.
+
+        Quiz generation may represent options as strings or as small
+        dictionaries. This helper keeps evaluation output deterministic
+        without involving an LLM.
+        """
+
+        if value is None:
+            return ""
+
+        if isinstance(value, str):
+            return value.strip()
+
+        if isinstance(value, dict):
+            for key in (
+                "text",
+                "label",
+                "value",
+                "option",
+                "answer",
+            ):
+                candidate = value.get(key)
+
+                if isinstance(
+                    candidate,
+                    str,
+                ):
+                    normalized = candidate.strip()
+
+                    if normalized:
+                        return normalized
+
+            return ""
+
+        return str(value).strip()
+
+    @classmethod
+    def _get_option_text(
+        cls,
+        metadata: dict[str, Any],
+        answer_letter: str,
+    ) -> str:
+        """
+        Resolve the text belonging to an answer letter.
+
+        Supported stored quiz shapes include:
+
+            {
+                "options": {
+                    "A": "update",
+                    "B": "insert",
+                    ...
+                }
+            }
+
+        and:
+
+            {
+                "options": [
+                    {"letter": "A", "text": "update"},
+                    {"letter": "B", "text": "insert"},
+                    ...
+                ]
+            }
+
+        The helper also supports common alternative option containers so
+        evaluation remains compatible with existing generated quiz data.
+
+        Returns an empty string when no matching option text is available.
+        """
+
+        normalized_letter = (
+            str(answer_letter)
+            .strip()
+            .upper()
+        )
+
+        if (
+            not normalized_letter
+            or normalized_letter
+            not in VALID_ANSWER_LETTERS
+        ):
+            return ""
+
+        # --------------------------------------------------------------------
+        # DIRECT LETTER-SUFFIX FIELDS
+        # --------------------------------------------------------------------
+
+        direct_keys = (
+            f"option_{normalized_letter.lower()}",
+            f"option_{normalized_letter}",
+            f"{normalized_letter.lower()}",
+            normalized_letter,
+        )
+
+        for key in direct_keys:
+            if key in metadata:
+                text = cls._normalize_option_text(
+                    metadata.get(key)
+                )
+
+                if text:
+                    return text
+
+        # --------------------------------------------------------------------
+        # OPTION CONTAINERS
+        # --------------------------------------------------------------------
+
+        option_container = None
+
+        for key in (
+            "options",
+            "choices",
+            "answer_options",
+            "answers",
+        ):
+            candidate = metadata.get(key)
+
+            if candidate is not None:
+                option_container = candidate
+                break
+
+        if option_container is None:
+            return ""
+
+        # --------------------------------------------------------------------
+        # DICTIONARY:
+        #
+        # {
+        #     "A": "text",
+        #     "B": "text"
+        # }
+        # --------------------------------------------------------------------
+
+        if isinstance(
+            option_container,
+            dict,
+        ):
+            direct = option_container.get(
+                normalized_letter
+            )
+
+            if direct is None:
+                direct = option_container.get(
+                    normalized_letter.lower()
+                )
+
+            if direct is None:
+                direct = option_container.get(
+                    normalized_letter.upper()
+                )
+
+            text = cls._normalize_option_text(
+                direct
+            )
+
+            if text:
+                return text
+
+            # Some generators may use numeric indexes.
+            index = (
+                ord(normalized_letter)
+                - ord("A")
+            )
+
+            numeric_candidate = option_container.get(
+                index
+            )
+
+            text = cls._normalize_option_text(
+                numeric_candidate
+            )
+
+            if text:
+                return text
+
+            return ""
+
+        # --------------------------------------------------------------------
+        # LIST:
+        #
+        # [
+        #     {"letter": "A", "text": "..."},
+        #     {"letter": "B", "text": "..."}
+        # ]
+        #
+        # or:
+        #
+        # ["text A", "text B", "text C", "text D"]
+        # --------------------------------------------------------------------
+
+        if isinstance(
+            option_container,
+            list,
+        ):
+            index = (
+                ord(normalized_letter)
+                - ord("A")
+            )
+
+            # First prefer explicit letter metadata.
+            for option in option_container:
+
+                if not isinstance(
+                    option,
+                    dict,
+                ):
+                    continue
+
+                option_letter = str(
+                    option.get(
+                        "letter",
+                        option.get(
+                            "key",
+                            option.get(
+                                "id",
+                                "",
+                            ),
+                        ),
+                    )
+                ).strip().upper()
+
+                if option_letter != normalized_letter:
+                    continue
+
+                text = cls._normalize_option_text(
+                    option
+                )
+
+                if text:
+                    return text
+
+            # Fall back to positional options.
+            if (
+                0 <= index
+                < len(option_container)
+            ):
+                text = cls._normalize_option_text(
+                    option_container[index]
+                )
+
+                if text:
+                    return text
+
+        return ""
 
     # ========================================================================
     # QUIZ EVALUATION
@@ -368,6 +625,17 @@ class EvaluationService:
             ).strip() or "General"
 
             # ---------------------------------------------------------------
+            # OPTION TEXT
+            # ---------------------------------------------------------------
+
+            correct_answer_text = (
+                self._get_option_text(
+                    metadata=metadata,
+                    answer_letter=correct_answer,
+                )
+            )
+
+            # ---------------------------------------------------------------
             # USER ANSWER
             # ---------------------------------------------------------------
 
@@ -391,6 +659,16 @@ class EvaluationService:
                     f"{normalized_question_id}."
                 )
 
+            user_answer_text = ""
+
+            if user_answer:
+                user_answer_text = (
+                    self._get_option_text(
+                        metadata=metadata,
+                        answer_letter=user_answer,
+                    )
+                )
+
             # ---------------------------------------------------------------
             # CORRECT
             # ---------------------------------------------------------------
@@ -408,9 +686,17 @@ class EvaluationService:
                     question_id=normalized_question_id,
                     question=question,
                     correct_answer=correct_answer,
+                    correct_answer_text=(
+                        correct_answer_text
+                        or None
+                    ),
                     user_answer=(
                         user_answer
                         or "(no answer)"
+                    ),
+                    user_answer_text=(
+                        user_answer_text
+                        or None
                     ),
                     explanation=explanation,
                     topic=topic,
@@ -440,7 +726,6 @@ class EvaluationService:
         # --------------------------------------------------------------------
 
         with self._lock:
-
             session_evaluations = (
                 self._get_session_evaluations(
                     normalized_session_id
@@ -492,7 +777,6 @@ class EvaluationService:
                 len(session_evaluations)
                 > MAX_EVALUATIONS_PER_SESSION
             ):
-
                 oldest_quiz_id = min(
                     session_evaluations,
                     key=lambda quiz_id: (
@@ -522,11 +806,9 @@ class EvaluationService:
             for session_id, session_evaluations in (
                 self._evaluations.items()
             ):
-
                 for quiz_id, evaluation in (
                     session_evaluations.items()
                 ):
-
                     if (
                         evaluation.timestamp
                         < oldest_timestamp
@@ -606,7 +888,6 @@ class EvaluationService:
             return None
 
         with self._lock:
-
             session_evaluations = (
                 self._evaluations.get(
                     normalized_session_id
@@ -677,7 +958,6 @@ class EvaluationService:
         # --------------------------------------------------------------------
 
         with self._lock:
-
             session_evaluations = (
                 self._evaluations.get(
                     normalized_session_id,

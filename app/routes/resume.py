@@ -2,12 +2,14 @@
 Resume routes.
 
 Resume Prep:
+
     - Upload and extract a resume.
     - Track resume preparation progress.
     - Generate interview assessments for resume items.
     - Submit resume assessments using the shared evaluation engine.
 
 Security:
+
     - Gemini API keys are supplied per request.
     - API keys are never persisted or logged.
     - Resume data is isolated by anonymous BodhaQ session.
@@ -320,7 +322,6 @@ async def upload_resume(
     resume_id: str | None = None
 
     try:
-
         # --------------------------------------------------------------------
         # STREAM FILE TO DISK
         # --------------------------------------------------------------------
@@ -395,12 +396,14 @@ async def upload_resume(
         ValueError,
         RuntimeError,
     ) as exc:
+
         _raise_gemini_error(
             exc,
             feature="resume upload",
         )
 
     except OSError as exc:
+
         logger.exception(
             "[Resume] File system error."
         )
@@ -417,6 +420,7 @@ async def upload_resume(
         ) from exc
 
     except Exception as exc:
+
         logger.exception(
             "[Resume] Unexpected resume processing error."
         )
@@ -501,6 +505,7 @@ def get_resume_progress(
         )
 
     except ValueError as exc:
+
         logger.warning(
             "[Resume] Invalid session/progress request: %s",
             type(exc).__name__,
@@ -515,6 +520,7 @@ def get_resume_progress(
         ) from exc
 
     except Exception as exc:
+
         logger.exception(
             "[Resume] Failed to load resume progress."
         )
@@ -597,12 +603,14 @@ def generate_resume_quiz(
         ValueError,
         RuntimeError,
     ) as exc:
+
         _raise_gemini_error(
             exc,
             feature="resume quiz",
         )
 
     except Exception as exc:
+
         logger.exception(
             "[Resume] Unexpected resume quiz generation error."
         )
@@ -644,7 +652,6 @@ def submit_resume_quiz(
     """
 
     try:
-
         # --------------------------------------------------------------------
         # DETERMINISTIC EVALUATION
         # --------------------------------------------------------------------
@@ -679,6 +686,7 @@ def submit_resume_quiz(
             )
 
             if item_id:
+
                 resume_service.mark_item_completed(
                     session_id=session_id,
                     item_id=item_id,
@@ -697,6 +705,7 @@ def submit_resume_quiz(
         return evaluation
 
     except ValueError as exc:
+
         logger.warning(
             "[Resume] Invalid quiz submission: %s",
             type(exc).__name__,
@@ -725,6 +734,7 @@ def submit_resume_quiz(
         ) from exc
 
     except RuntimeError as exc:
+
         logger.exception(
             "[Resume] Resume quiz evaluation failed."
         )
@@ -741,6 +751,7 @@ def submit_resume_quiz(
         ) from exc
 
     except Exception as exc:
+
         logger.exception(
             "[Resume] Unexpected resume quiz submission error."
         )
